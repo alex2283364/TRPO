@@ -19,7 +19,6 @@ import { UserDataType } from "../types/User";
 import { httpClient } from "@config/axiosConfig";
 
 import { setAccesstoken } from "@src/helper/Token";
-import { useNavigate } from "react-router-dom";
 import useAuthHttpClient from "@src/hooks/useAuthHttpClient";
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -40,7 +39,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const navigate = useNavigate();
   const login: Login = async ({ email, password }) => {
     let err = "";
 
@@ -85,7 +83,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await httpClient.get<AuthResponse>("/auth/signout");
       setUser(undefined);
       setAccesstoken("");
-      navigate("/");
     } catch (error) {
       if (isAxiosError(error)) {
         err = error.response?.data.error.message;
