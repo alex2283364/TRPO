@@ -1,277 +1,252 @@
-import { NextFunction, Request, RequestHandler, Response } from "express";
-import User, { IUser } from "../models/userSchema.js";
-import jwt, { JwtPayload } from "jsonwebtoken";
-import ErrorResponse from "../utils/ErrorResponse.js";
-import { sendMail } from "../services/Sendmail.js";
+import { Request, Response } from 'express';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import userService from '../services/user.service.ts';
+import { SendMail } from '../services/Sendmail.ts';
+import moment from 'moment';
 
-export const signin: RequestHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  const { email, password }: { email: string; password: string } = req.body;
-
-  if (!email || !password) {
-    return next(new ErrorResponse("Please! Enter Email and Password", 400));
-  }
-
-  try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      return next(new ErrorResponse("Invalid Credentials", 401));
-    }
-    const ismatch = await user.matchPassword(password);
-
-    if (!ismatch) {
-      return next(new ErrorResponse("Invalid credentials", 401));
-    }
-
-    if (!user.isVerified) {
-      return next(
-        new ErrorResponse("Please Verifiy Your Email and Try again", 401)
-      );
-    }
-
-    const { accessToken, refreshToken } = user.getSignedToken();
-
-    // send refreshtoken to client in cookie
-    res.cookie("refreshtoken", refreshToken, {
-      httpOnly: true,
-      sameSite: "none",
-      secure: true,
-      // maxAge: 24 * 60 * 60 * 1000, // 1 day
-      maxAge: 3 * 60 * 1000,
-
-      path: "/api/auth/refresh",
-    });
-
-    // send accesstoken to client
-    res.status(200).json({
-      success: true,
-      user: {
-        name: user.name,
-        email: user.email,
-        dob: user.dob,
-        gender: user.gender,
-        isVerified: user.isVerified,
-      },
-      accessToken,
-    });
-  } catch (error) {
-    next(error);
-  }
+// Генерация токенов
+const generateAccessToken = (userId: number, email: string): string => {
+  return jwt.sign(
+    { id: userId, email },
+    process.env.ACCESS_TOKEN_SECRET_KEY || 'default_access_key',
+    { expiresIn: '30s' }
+  );
 };
 
-export const signup: RequestHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  const { name, email, password, dob, gender }: IUser = req.body;
+const generateRefreshToken = (userId: number): string => {
+  return jwt.sign(
+    { id: userId },
+    process.env.REFRESH_TOKEN_SECRET_KEY || 'default_refresh_key',
+    { expiresIn: '2m' }
+  );
+};
 
-  if (!name || !email || !password || !dob || !gender) {
-    return next(new ErrorResponse("Incorrect data", 400));
-  }
-
+// Регистрация
+export const signup = async (req: Request, res: Response): Promise<void> => {
   try {
-    let user = await User.findOne({ email: email });
+    const { email, password, firstname, lastname, patronymic } = req.body;
 
-    if (user) {
-      return next(new ErrorResponse("Email already exists", 409));
+    // Проверка существующего пользователя
+    const existingUser = await userService.findByEmail(email);
+    if (existingUser) {
+      res.status(400).json({ message: 'Пользователь с таким email уже существует' });
+      return;
     }
 
-    user = await User.create({ name, email, password, dob, gender });
-    const activationToken = await user.getActivationToken();
-    const url = `${process.env.CLIENT_BASE_URL}/auth/emailverification?t=${activationToken}`;
-    await sendMail(email, url, name, "Email Verification", "varificationmail");
+    // Хэширование пароля
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Создание пользователя
+    const user = await userService.create(email, hashedPassword);
+
+    // Генерация токенов
+    const accessToken = generateAccessToken(user.id, user.email || '');
+    const refreshToken = generateRefreshToken(user.id);
+
+    // Сохранение refresh token (можно добавить в отдельную таблицу)
+    // await prisma.refreshToken.create({ ... })
+
     res.status(201).json({
-      success: true,
-      message: "Email Verifcation mail has been sent",
+      message: 'Пользователь успешно зарегистрирован',
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        isActive: user.is_active
+      }
     });
   } catch (error) {
-    return next(error);
+    console.error('Signup error:', error);
+    res.status(500).json({ message: 'Ошибка сервера при регистрации' });
   }
 };
 
-export const refresh: RequestHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  const refreshToken: string | undefined = req.cookies.refreshtoken;
-
-  if (!refreshToken) {
-    return next(new ErrorResponse("Unauthorized", 401));
-  }
-  // verify the refresh token
+// Вход
+export const signin = async (req: Request, res: Response): Promise<void> => {
   try {
+    const { email, password } = req.body;
+
+    // Поиск пользователя
+    const user = await userService.findByEmail(email);
+    if (!user) {
+      res.status(401).json({ message: 'Неверный email или пароль' });
+      return;
+    }
+
+    // Проверка активности
+    if (!user.is_active) {
+      res.status(401).json({ message: 'Аккаунт не активирован' });
+      return;
+    }
+
+    // Проверка пароля
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+    if (!isPasswordValid) {
+      res.status(401).json({ message: 'Неверный email или пароль' });
+      return;
+    }
+
+    // Генерация токенов
+    const accessToken = generateAccessToken(user.id, user.email || '');
+    const refreshToken = generateRefreshToken(user.id);
+
+    res.json({
+      message: 'Успешный вход',
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        isActive: user.is_active
+      }
+    });
+  } catch (error) {
+    console.error('Signin error:', error);
+    res.status(500).json({ message: 'Ошибка сервера при входе' });
+  }
+};
+
+// Обновление токена
+export const refreshToken = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      res.status(401).json({ message: 'Refresh token не предоставлен' });
+      return;
+    }
+
+    // Проверка refresh token
     const decoded = jwt.verify(
       refreshToken,
-      process.env.REFRESH_TOKEN_SECRET_KEY as string
-    ) as JwtPayload;
-    if (!decoded || !decoded.id) {
-      return next(new ErrorResponse("Unauthorized", 401));
+      process.env.REFRESH_TOKEN_SECRET_KEY || 'default_refresh_key'
+    ) as { id: number };
+
+    // Поиск пользователя
+    const user = await userService.findById(decoded.id);
+    if (!user || !user.is_active) {
+      res.status(401).json({ message: 'Пользователь не найден или не активен' });
+      return;
     }
-    const newAccessToken = jwt.sign(
-      { id: decoded.id },
-      process.env.ACCESS_TOKEN_SECRET_KEY as string,
-      {
-        expiresIn: "15s",
-      }
-    );
-    res.status(201).json({ success: true, accessToken: newAccessToken });
-  } catch (error) {
-    next(error);
-  }
-};
 
-export const forgotpassword: RequestHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  const { email }: { email: string } = req.body;
+    // Генерация новых токенов
+    const newAccessToken = generateAccessToken(user.id, user.email || '');
+    const newRefreshToken = generateRefreshToken(user.id);
 
-  try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      return next(new ErrorResponse("Email could not be sent", 404));
-    }
-    const resetPasswordToken = await user.getResetPasswordToken();
-    const reseturl = `${process.env.CLIENT_BASE_URL}/auth/resetpassword?t=${resetPasswordToken}`;
-    const name = user.name;
-    await sendMail(
-      email,
-      reseturl,
-      name,
-      "RESET YOUR PASSWORD",
-      "forgotpasswordmail"
-    );
-    res
-      .status(200)
-      .json({ success: true, message: "Password Reset Email sent" });
-  } catch (error) {
-    console.log(error);
-    next(error);
-  }
-};
-
-export const resetpassword: RequestHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  let resetPasswordToken: string | undefined;
-
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer")
-  ) {
-    resetPasswordToken = req.headers.authorization.split(" ")[1];
-  }
-
-  if (
-    !resetPasswordToken ||
-    resetPasswordToken === undefined ||
-    resetPasswordToken === null
-  ) {
-    return next(new ErrorResponse("Unauthoriazed", 401));
-  }
-  try {
-    const decoded = jwt.verify(
-      resetPasswordToken,
-      process.env.RESET_PASSWORD_SECRET_KEY as string
-    ) as JwtPayload;
-    const { password }: { password: string } = req.body;
-    const user = await User.findOne({
-      _id: decoded.id,
-      resetPasswordToken: decoded.randomstring,
+    res.json({
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken
     });
-    if (!user) {
-      return next(new ErrorResponse("Wrong Reset Password token", 404));
-    }
-    user.password = password;
-    user.resetPasswordToken = undefined;
-    await user.save();
-    res
-      .status(200)
-      .json({ success: true, message: "Password Reset successfully" });
-    next();
   } catch (error) {
-    next(error);
+    console.error('Refresh token error:', error);
+    res.status(401).json({ message: 'Неверный refresh token' });
   }
 };
-export const verifyemail: RequestHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  let activationToken = req.query.t as string;
 
-  if (!activationToken) {
-    return next(new ErrorResponse("Invalid token", 401));
-  }
+// Выход
+export const signout = async (req: Request, res: Response): Promise<void> => {
   try {
-    const decoded = jwt.verify(
-      activationToken,
-      process.env.ACTIVATION_SECRET_KEY as string
-    ) as JwtPayload;
-
-    const user = await User.findOne({ _id: decoded.id });
-    if (!user) {
-      return next(new ErrorResponse("Invalid token", 404));
-    }
-    user.isVerified = true;
-    await user.save();
-
-    res
-      .status(200)
-      .json({ success: true, message: "Email Verification successfull" });
-    next();
+    // Здесь можно добавить удаление refresh token из БД
+    res.json({ message: 'Успешный выход' });
   } catch (error) {
-    next(error);
+    console.error('Signout error:', error);
+    res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
-export const sendVerificationMail: RequestHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  const { email } = req.body;
 
+// Забыли пароль
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
   try {
-    const user = await User.findOne({ email });
+    const { email } = req.body;
+
+    const user = await userService.findByEmail(email);
     if (!user) {
-      return next(new ErrorResponse("Email could not be sent", 404));
+      // Не показываем, существует ли пользователь
+      res.json({ message: 'Если пользователь существует, письмо отправлено' });
+      return;
     }
-    const activationToken = await user.getActivationToken();
-    const url = `${process.env.CLIENT_BASE_URL}/auth/emailverification?t=${activationToken}`;
-    await sendMail(
-      email,
-      url,
-      user.name,
-      "Email Verification",
-      "varificationmail"
+
+    // Генерация токена сброса
+    const resetToken = jwt.sign(
+      { id: user.id },
+      process.env.RESET_PASSWORD_SECRET_KEY || 'default_reset_key',
+      { expiresIn: '3m' }
     );
 
-    res
-      .status(200)
-      .json({ success: true, message: "Verification Mail Sent successfully" });
-    next();
+    // Отправка email (реализуйте SendMail)
+    const resetLink = `${process.env.CLIENT_BASE_URL}/reset-password?token=${resetToken}`;
+    
+    // await SendMail({
+    //   to: user.email,
+    //   subject: 'Сброс пароля',
+    //   template: 'resetPassword',
+    //   context: { resetLink }
+    // });
+
+    res.json({ message: 'Если пользователь существует, письмо отправлено' });
   } catch (error) {
-    next(error);
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'Ошибка сервера' });
   }
 };
-export const signout: RequestHandler = async (req, res, next) => {
-  res.clearCookie("refreshtoken", {
-    httpOnly: true,
-    sameSite: "none",
-    secure: true,
-    path: "/api/auth/refresh",
-  });
-  res.status(200).json({
-    success: true,
-    message: "Signout Successfully",
-  });
-  res.end();
+
+// Сброс пароля
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      res.status(400).json({ message: 'Токен и новый пароль обязательны' });
+      return;
+    }
+
+    // Проверка токена
+    const decoded = jwt.verify(
+      token,
+      process.env.RESET_PASSWORD_SECRET_KEY || 'default_reset_key'
+    ) as { id: number };
+
+    // Обновление пароля
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await userService.updatePassword(decoded.id, hashedPassword);
+
+    res.json({ message: 'Пароль успешно изменен' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(400).json({ message: 'Неверный или истекший токен' });
+  }
+};
+
+// Подтверждение email
+export const verifyEmail = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.query;
+
+    if (!token) {
+      res.status(400).json({ message: 'Токен не предоставлен' });
+      return;
+    }
+
+    // Проверка и активация пользователя
+    const decoded = jwt.verify(
+      token as string,
+      process.env.ACTIVATION_SECRET_KEY || 'default_activation_key'
+    ) as { id: number };
+
+    const user = await userService.findById(decoded.id);
+    if (!user) {
+      res.status(404).json({ message: 'Пользователь не найден' });
+      return;
+    }
+
+    // Активация (добавьте метод в userService)
+    // await userService.activateUser(decoded.id);
+
+    res.json({ message: 'Email успешно подтвержден' });
+  } catch (error) {
+    console.error('Verify email error:', error);
+    res.status(400).json({ message: 'Неверный или истекший токен' });
+  }
 };

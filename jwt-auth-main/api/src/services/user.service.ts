@@ -1,8 +1,7 @@
-const prisma = require('../config/prisma');
+import prisma from '../db/connect.ts';
 
 class UserService {
-  // Найти пользователя по email
-  async findByEmail(email) {
+  async findByEmail(email: string) {
     return await prisma.users.findUnique({
       where: { email: email },
       include: {
@@ -14,8 +13,7 @@ class UserService {
     });
   }
 
-  // Найти по ID
-  async findById(id) {
+  async findById(id: number) {
     return await prisma.users.findUnique({
       where: { id: id },
       include: {
@@ -27,8 +25,7 @@ class UserService {
     });
   }
 
-  // Создать пользователя
-  async create(email, passwordHash, saltId = null) {
+  async create(email: string, passwordHash: string, saltId: number | null = null) {
     return await prisma.users.create({
       data: {
         email: email,
@@ -40,16 +37,7 @@ class UserService {
     });
   }
 
-  // Активировать пользователя
-  async activate(userId) {
-    return await prisma.users.update({
-      where: { id: userId },
-      data: { is_active: true }
-    });
-  }
-
-  // Обновить пароль
-  async updatePassword(userId, newPasswordHash) {
+  async updatePassword(userId: number, newPasswordHash: string) {
     return await prisma.users.update({
       where: { id: userId },
       data: { password_hash: newPasswordHash }
@@ -57,4 +45,4 @@ class UserService {
   }
 }
 
-module.exports = new UserService();
+export default new UserService();

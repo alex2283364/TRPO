@@ -1,0 +1,307 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model comment {
+  id           Int           @id @default(autoincrement())
+  comment_text String?
+  comment_date DateTime?     @db.Date
+  user_id      Int?
+  users        users?        @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  taskcomment  taskcomment[] @ignore
+}
+
+model courses {
+  id               Int                @id @default(autoincrement())
+  name             String             @db.VarChar(255)
+  description      String?
+  start_date       DateTime?          @db.Date
+  end_date         DateTime?          @db.Date
+  coursesinventory coursesinventory[] @ignore
+  coursgroup       coursgroup[]       @ignore
+  teachercours     teachercours[]     @ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model coursesinventory {
+  courses_id   Int?
+  inventory_id Int?
+  courses      courses?   @relation(fields: [courses_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inventory    inventory? @relation(fields: [inventory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model coursgroup {
+  course_id Int
+  groupe_id Int?
+  courses   courses @relation(fields: [course_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  groups    groups? @relation(fields: [groupe_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model courstask {
+  inventory_id Int?
+  tasklist_id  Int?
+  inventory    inventory? @relation(fields: [inventory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  task         task?      @relation(fields: [tasklist_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model courstest {
+  test_id      Int?
+  inventory_id Int?
+  inventory    inventory? @relation(fields: [inventory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  test         test?      @relation(fields: [test_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+model file {
+  id            Int             @id @default(autoincrement())
+  file_name     String?         @db.VarChar(255)
+  path          String?         @db.VarChar(255)
+  extension     String?         @db.VarChar(10)
+  size          Int?
+  inventoryfile inventoryfile[] @ignore
+  taskfile      taskfile[]      @ignore
+}
+
+model groups {
+  id            Int            @id @default(autoincrement())
+  name          String         @db.VarChar(255)
+  academic_year String?        @db.VarChar(20)
+  max_students  Int?
+  coursgroup    coursgroup[]   @ignore
+  studentgroup  studentgroup[] @ignore
+  teachergroup  teachergroup[] @ignore
+}
+
+model inventory {
+  id               Int                @id @default(autoincrement())
+  create_state     String?            @db.VarChar(50)
+  que_date         DateTime?          @db.Timestamp(6)
+  coursesinventory coursesinventory[] @ignore
+  courstask        courstask[]        @ignore
+  courstest        courstest[]        @ignore
+  inventoryfile    inventoryfile[]    @ignore
+  inventorytext    inventorytext[]    @ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model inventoryfile {
+  inventory_id Int
+  file_id      Int?
+  file         file?     @relation(fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inventory    inventory @relation(fields: [inventory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model inventorytext {
+  inventory_id Int
+  textitem_id  Int?
+  inventory    inventory @relation(fields: [inventory_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  textitem     textitem? @relation(fields: [textitem_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+model role {
+  id             Int        @id @default(autoincrement())
+  role_name      String     @db.VarChar(255)
+  permission_oid String?    @db.VarChar(255)
+  students       students[]
+  teacher        teacher[]
+  userrole       userrole[] @ignore
+}
+
+model salt {
+  id    Int     @id @default(autoincrement())
+  salt  String? @db.VarChar(255)
+  users users[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model studentgroup {
+  student_id Int?
+  group_id   Int?
+  groups     groups?   @relation(fields: [group_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  students   students? @relation(fields: [student_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+model students {
+  id           Int            @id @default(autoincrement())
+  lastname     String         @db.VarChar(255)
+  firstname    String         @db.VarChar(255)
+  patronymic   String?        @db.VarChar(255)
+  student_code String         @db.VarChar(255)
+  role_id      Int
+  studentgroup studentgroup[] @ignore
+  role         role           @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model task {
+  id           Int           @id @default(autoincrement())
+  name         String        @db.VarChar(255)
+  time_id      Int?
+  qdescription String?
+  adescription String?
+  courstask    courstask[]   @ignore
+  time         time?         @relation(fields: [time_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  taskcomment  taskcomment[] @ignore
+  taskresult   taskresult[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model taskcomment {
+  task_id    Int?
+  comment_id Int?
+  comment    comment? @relation(fields: [comment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  task       task?    @relation(fields: [task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model taskfile {
+  taskresult_id Int
+  file_id       Int?
+  file          file?      @relation(fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  taskresult    taskresult @relation(fields: [taskresult_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model tasknotification {
+  taskresult_id Int?
+  user_id       Int?
+  taskresult    taskresult? @relation(fields: [taskresult_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users         users?      @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+model taskresult {
+  id               Int                @id @default(autoincrement())
+  task_id          Int
+  validation       String             @default("Не выполнено") @db.VarChar(255)
+  create_date      DateTime?          @db.Timestamp(6)
+  result           String?
+  taskfile         taskfile[]         @ignore
+  tasknotification tasknotification[] @ignore
+  task             task               @relation(fields: [task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model teacher {
+  id           Int            @id @default(autoincrement())
+  lastname     String         @db.VarChar(255)
+  firstname    String         @db.VarChar(255)
+  patronymic   String?        @db.VarChar(255)
+  teacher_code String         @db.VarChar(255)
+  role_id      Int
+  role         role           @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teachercours teachercours[] @ignore
+  teachergroup teachergroup[] @ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model teachercours {
+  course_id  Int
+  teacher_id Int?
+  courses    courses  @relation(fields: [course_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teacher    teacher? @relation(fields: [teacher_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model teachergroup {
+  student_id Int?
+  group_id   Int?
+  groups     groups?  @relation(fields: [group_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teacher    teacher? @relation(fields: [student_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+model test {
+  id             Int         @id @default(autoincrement())
+  test_result_id Int?
+  time_id        Int
+  description    String?
+  attempts_count Int?
+  courstest      courstest[] @ignore
+  testresult     testresult? @relation(fields: [test_result_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  time           time        @relation(fields: [time_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model testnotification {
+  testresult_id Int?
+  user_id       Int?
+  testresult    testresult? @relation(fields: [testresult_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users         users?      @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+model testresult {
+  id               Int                @id @default(autoincrement())
+  mark             Int?
+  create_date      DateTime?          @db.Timestamp(6)
+  test             test[]
+  testnotification testnotification[] @ignore
+}
+
+model textitem {
+  id            Int             @id @default(autoincrement())
+  text_ontent   String?         @map("textсontent")
+  inventorytext inventorytext[] @ignore
+}
+
+model time {
+  id         Int       @id @default(autoincrement())
+  name       String?   @db.VarChar(255)
+  start_date DateTime? @db.Date
+  end_date   DateTime? @db.Date
+  task       task[]
+  test       test[]
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model userrole {
+  user_id Int?
+  role_id Int?
+  role    role?  @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users   users? @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@ignore
+}
+
+model users {
+  id               Int                @id @default(autoincrement())
+  password_hash    String             @db.VarChar(255)
+  email            String?            @db.VarChar(255)
+  is_active        Boolean?           @default(true)
+  create_at        DateTime?          @db.Timestamp(6)
+  salt_id          Int?
+  comment          comment[]
+  tasknotification tasknotification[] @ignore
+  testnotification testnotification[] @ignore
+  userrole         userrole[]         @ignore
+  salt             salt?              @relation(fields: [salt_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}

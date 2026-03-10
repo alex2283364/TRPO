@@ -4,4 +4,8 @@ export interface validatefuncParameter {
   password?: string;
   dob?: string;
   gender?: string;
+  // Добавьте другие поля при необходимости
+  firstname?: string;
+  lastname?: string;
+  patronymic?: string;
 }

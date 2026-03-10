@@ -8,13 +8,13 @@ import {
   signout,
   signup,
   verifyemail,
-} from "../controller/auth.controller.js";
+} from "../controller/auth.controller.ts";
 import { checkSchema } from "express-validator";
 import {
   loginschema,
   registrationSchema,
   validate,
-} from "../utils/validator.js";
+} from "../utils/validator.ts";
 
 const router = Router();
 

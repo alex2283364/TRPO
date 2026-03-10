@@ -15,7 +15,7 @@
     "dist"
   ],
   "include": [
-    "src/**/*.ts",
+    "src/**/*.ts"
   ],
   "ts-node": {
     "esm": true
