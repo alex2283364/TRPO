@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход в систему</title>
+    <style>
+        #bindRoleContainer { display: none; }
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .login-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 300px;
+        }
+
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #5a67d8;
+        }
+
+        #message {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .link {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+
+        .link a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .link a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Контейнер для входа -->
+    <div class="login-container" id="loginContainer">
+        <h2>Вход</h2>
+        <form id="loginForm">
+            <input type="text" id="login" placeholder="Логин или Email" required>
+            <input type="password" id="password" placeholder="Пароль" required>
+            <button type="submit">Войти</button>
+        </form>
+        <div id="message"></div>
+        <div class="link">
+            Нет аккаунта? <a href="/register.html">Зарегистрируйтесь</a>
+        </div>
+    </div>
+
+    <!-- Контейнер для привязки роли (изначально скрыт) -->
+    <div class="login-container" id="bindRoleContainer">
+        <h2>Привязка роли</h2>
+        <p>Для доступа необходима роль. Введите код, полученный от администратора:</p>
+        <form id="bindRoleForm">
+            <input type="text" id="rolePassword" placeholder="Код роли" required>
+            <button type="submit">Привязать</button>
+        </form>
+        <div id="bindMessage"></div>
+        <div class="link">
+            <a href="#" id="backToLogin">← Назад к входу</a>
+        </div>
+    </div>
+
+    <script src="dist/auth.js"></script>
+</body>
+
+</html>
