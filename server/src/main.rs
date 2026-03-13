@@ -1,14 +1,19 @@
 mod models;
 
-use actix_web::{web, App, HttpServer, Responder, HttpResponse};
-use actix_files as fs;
-use sqlx::postgres::{PgPool, PgPoolOptions};
-use dotenvy::dotenv;
-use std::env;
-use crate::models::{User, CreateUserRequest};
-use crate::models::{LoginRequest, LoginResponse, BindRoleRequest,
-StudentInfo, UserInfoRequest, Course
+use crate::models::{
+    BindRoleRequest, ContentOrderItem, Course, CourseContentItem, FileInfo, LoginRequest,
+    LoginResponse, StudentInfo, TextContent, UserInfoRequest,
 };
+use crate::models::{CreateUserRequest, User};
+use actix_files as fs;
+use actix_files::NamedFile;
+use actix_web::web::{Path, Query};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use dotenvy::dotenv;
+use serde::Deserialize;
+use sqlx::postgres::{PgPool, PgPoolOptions};
+use std::env;
+use std::path::PathBuf;
 
 // Обработчик для получения списка пользователей
 async fn get_users(state: web::Data<AppState>) -> impl Responder {
@@ -55,10 +60,12 @@ async fn create_user(
             sqlx::Error::Database(db_err) => {
                 // Проверяем нарушения уникальности (имена индексов могут отличаться)
                 if db_err.constraint() == Some("users_user_name_key") {
-                    return HttpResponse::Conflict().body("Пользователь с таким именем уже существует");
+                    return HttpResponse::Conflict()
+                        .body("Пользователь с таким именем уже существует");
                 }
                 if db_err.constraint() == Some("users_email_key") {
-                    return HttpResponse::Conflict().body("Пользователь с таким email уже существует");
+                    return HttpResponse::Conflict()
+                        .body("Пользователь с таким email уже существует");
                 }
                 eprintln!("Ошибка базы данных: {:?}", db_err);
                 HttpResponse::InternalServerError().body("Ошибка базы данных")
@@ -71,7 +78,7 @@ async fn create_user(
     } else {
         // Процедура выполнена успешно – получаем созданного пользователя по user_name
         let user = sqlx::query_as::<_, User>(
-            "SELECT id, user_name, email, create_at FROM base.users WHERE user_name = $1"
+            "SELECT id, user_name, email, create_at FROM base.users WHERE user_name = $1",
         )
         .bind(&user_req.username)
         .fetch_one(&mut *tx)
@@ -89,7 +96,8 @@ async fn create_user(
             Err(e) => {
                 let _ = tx.rollback().await;
                 eprintln!("Ошибка при получении созданного пользователя: {:?}", e);
-                HttpResponse::InternalServerError().body("Пользователь создан, но не удалось получить данные")
+                HttpResponse::InternalServerError()
+                    .body("Пользователь создан, но не удалось получить данные")
             }
         }
     }
@@ -122,7 +130,7 @@ async fn authenticate(
                         authenticated: true,
                         role_bound: has_role,
                         token: None, // если нужно, добавьте генерацию токена
-                    })  
+                    })
                 }
                 Err(e) => {
                     eprintln!("Ошибка проверки роли: {:?}", e);
@@ -142,10 +150,7 @@ async fn authenticate(
     }
 }
 
-async fn bind_role(
-     state: web::Data<AppState>,
-    req: web::Json<BindRoleRequest>,
-) -> impl Responder {
+async fn bind_role(state: web::Data<AppState>, req: web::Json<BindRoleRequest>) -> impl Responder {
     let pool = &state.public_pool;
     let result = sqlx::query_scalar::<_, bool>("SELECT base.binding_role($1, $2)")
         .bind(&req.login)
@@ -173,15 +178,20 @@ async fn get_user_info(
     let pool = &state.student_pool;
 
     let result = sqlx::query_as::<_, (String, String, String, String)>(
-        "SELECT * FROM base.get_students_by_username($1)"
+        "SELECT * FROM base.get_students_by_username($1)",
     )
     .bind(&req.username)
     .fetch_optional(pool)
     .await;
 
     match result {
-        Ok(Some((lastname, firstname, patronymic,groupp))) => {
-            HttpResponse::Ok().json(StudentInfo { lastname, firstname, patronymic, groupp})
+        Ok(Some((lastname, firstname, patronymic, groupp))) => {
+            HttpResponse::Ok().json(StudentInfo {
+                lastname,
+                firstname,
+                patronymic,
+                groupp,
+            })
         }
         Ok(None) => HttpResponse::NotFound().body("Студент не найден"),
         Err(e) => {
@@ -197,12 +207,10 @@ async fn get_courses(
 ) -> impl Responder {
     let pool = &state.student_pool;
 
-    let courses = sqlx::query_as::<_, Course>(
-        "SELECT * FROM base.get_courses_by_username($1)"
-    )
-    .bind(&req.username)
-    .fetch_all(pool)
-    .await;
+    let courses = sqlx::query_as::<_, Course>("SELECT * FROM base.get_courses_by_username($1)")
+        .bind(&req.username)
+        .fetch_all(pool)
+        .await;
 
     match courses {
         Ok(courses) => HttpResponse::Ok().json(courses),
@@ -212,11 +220,168 @@ async fn get_courses(
         }
     }
 }
+#[derive(Debug, Deserialize)]
+pub struct UsernameQuery {
+    username: String,
+}
+
+async fn get_course_content(
+    state: web::Data<AppState>,
+    course_id: Path<i32>,
+    query: Query<UsernameQuery>,
+) -> impl Responder {
+    let course_id = course_id.into_inner();
+    let username = &query.username;
+    let pool = &state.student_pool;
+
+    // 1. Проверить, имеет ли пользователь доступ к этому курсу
+    let has_access = sqlx::query_scalar::<_, i32>(
+        "SELECT id FROM base.get_courses_by_username($1) WHERE id = $2",
+    )
+    .bind(username)
+    .bind(course_id)
+    .fetch_optional(pool)
+    .await;
+
+    match has_access {
+        Ok(Some(_)) => { /* доступ есть */ }
+        Ok(None) => return HttpResponse::Forbidden().body("У вас нет доступа к этому курсу"),
+        Err(e) => {
+            eprintln!("Ошибка проверки доступа: {:?}", e);
+            return HttpResponse::InternalServerError().body("Ошибка сервера");
+        }
+    }
+
+    // 2. Получить порядок содержимого из функции get_contentorder_by_course
+    let order_items = match sqlx::query_as::<_, ContentOrderItem>(
+        "SELECT * FROM base.get_contentorder_by_course($1)",
+    )
+    .bind(course_id)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(items) => items,
+        Err(e) => {
+            eprintln!("Ошибка получения порядка содержимого: {:?}", e);
+            return HttpResponse::InternalServerError().body("Ошибка получения содержимого");
+        }
+    };
+
+    // 3. Для каждого элемента получить данные в зависимости от типа
+    let mut result = Vec::new();
+    let mut text_vec = Vec::new();
+    let mut file_vec = Vec::new();
+    // Получаем текст через функцию get_textcontent_by_inventory
+    let text = sqlx::query_scalar::<_, String>(
+        "SELECT textсontent FROM base.get_textcontent_by_inventory($1)",
+    )
+    .bind(order_items[0].inventory_id)
+    .fetch_all(pool)
+    .await;
+
+    match text {
+        Ok(text) => {
+            for t in text{
+            text_vec.push(Some(t));
+            }
+        }      
+        Err(e) => {
+            eprintln!("Ошибка получения текста: {:?}", e);
+            return HttpResponse::InternalServerError().body("Ошибка загрузки текста");
+        }
+    }
+
+    // Получаем файлы для данного inventory (прямой запрос с id)
+                let files =
+                    sqlx::query_as::<_, FileInfo>("SELECT * FROM base.get_files_by_inventory($1)")
+                        .bind(order_items[0].inventory_id)
+                        .fetch_all(pool)
+                        .await;
+
+                match files {
+                    Ok(files) if !files.is_empty() => {
+                        for f in files{
+                        //println!("файл помещен {}", f.file_name);
+                         file_vec.push(Some(f)); 
+                        }
+                    }
+                    Ok(_) => {
+                        eprintln!(
+                            "Предупреждение: для inventory_id {} нет файлов",
+                            order_items[0].inventory_id
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Ошибка получения файлов: {:?}", e);
+                        return HttpResponse::InternalServerError().body("Ошибка загрузки файлов");
+                    }
+                }
+
+    for item in order_items {
+        match item.r#type.as_str() {
+            "text" => {
+                result.push(CourseContentItem {
+                    order: item.content_order,
+                    r#type: "text".to_string(),
+                    text: text_vec.remove(0),
+                    file: None,
+                });
+            }
+            "file" => {
+                result.push(CourseContentItem {
+                            order: item.content_order,
+                            r#type: "file".to_string(),
+                            text: None,
+                            file: file_vec.remove(0),
+                        });
+                        //println!("файл извлечен ");
+            }
+            _ => {
+                eprintln!("Неизвестный тип элемента: {}", item.r#type);
+            }
+        }
+    }
+
+    HttpResponse::Ok().json(result)
+}
+
+async fn get_file(state: web::Data<AppState>, file_id: Path<i32>) -> actix_web::Result<NamedFile> {
+    let file_id = file_id.into_inner();
+    let pool = &state.student_pool;
+
+    let file_info = sqlx::query_as::<_, FileInfo>("SELECT * FROM base.get_file_by_id($1)")
+        .bind(file_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            eprintln!("DB error: {:?}", e);
+            actix_web::error::ErrorInternalServerError("Database error")
+        })?;
+
+    let file_info =
+        file_info.ok_or_else(|| actix_web::error::ErrorNotFound("File not found in database"))?;
+    let filename = format!("{}.{}", file_info.file_name, file_info.extension);
+    let fullpath = format!("{}{}", file_info.path, filename);
+    let path = PathBuf::from(&fullpath);
+    if !path.exists() {
+        eprintln!("File not found on disk: {:?}", path);
+        return Err(actix_web::error::ErrorNotFound("File not found on disk"));
+    }
+
+    println!("Serving file: {:?} as {}", path, fullpath);
+
+    let file = NamedFile::open(&path).map_err(|e| {
+        eprintln!("Failed to open file {:?}: {}", path, e);
+        actix_web::error::ErrorInternalServerError("Could not open file")
+    })?;
+
+    Ok(file.use_last_modified(true))
+}
 
 pub struct AppState {
     public_pool: PgPool,
     student_pool: PgPool,
-    } 
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -226,34 +391,39 @@ async fn main() -> std::io::Result<()> {
 
     // Создаём пул соединений
     let public_pool = PgPoolOptions::new()
-    .max_connections(10)
-    .connect(&env::var("DATABASE_URL_PUBLIC").expect("DATABASE_URL_PUBLIC not set"))
-    .await
-    .expect("Failed to connect with public user");
+        .max_connections(10)
+        .connect(&env::var("DATABASE_URL_PUBLIC").expect("DATABASE_URL_PUBLIC not set"))
+        .await
+        .expect("Failed to connect with public user");
 
     let student_pool = PgPoolOptions::new()
-    .max_connections(5) // меньше соединений для чтения
-    .connect(&env::var("DATABASE_URL_STUDENT").expect("DATABASE_URL_STUDENT not set"))
-    .await
-    .expect("Failed to connect with student user");
+        .max_connections(5) // меньше соединений для чтения
+        .connect(&env::var("DATABASE_URL_STUDENT").expect("DATABASE_URL_STUDENT not set"))
+        .await
+        .expect("Failed to connect with student user");
 
     println!("Сервер запущен на http://127.0.0.1:8080");
 
     // Запускаем HTTP сервер
     HttpServer::new(move || {
-    let state = web::Data::new(AppState {
-        public_pool: public_pool.clone(),
-        student_pool: student_pool.clone(),
-    });
+        let state = web::Data::new(AppState {
+            public_pool: public_pool.clone(),
+            student_pool: student_pool.clone(),
+        });
 
-    App::new()
-        .app_data(state.clone())
-        .route("/users", web::post().to(create_user))
-        .route("/login", web::post().to(authenticate))
-        .route("/bind-role", web::post().to(bind_role))
-        .route("/user-info", web::post().to(get_user_info)) // новый эндпоинт
-        .route("/courses", web::post().to(get_courses))
-        .service(fs::Files::new("/", "./static").index_file("index.html"))
+        App::new()
+            .app_data(state.clone())
+            .route("/users", web::post().to(create_user))
+            .route("/login", web::post().to(authenticate))
+            .route("/bind-role", web::post().to(bind_role))
+            .route("/user-info", web::post().to(get_user_info)) // новый эндпоинт
+            .route("/courses", web::post().to(get_courses))
+            .route(
+                "/course-content/{course_id}",
+                web::get().to(get_course_content),
+            )
+            .route("/file/{file_id}", web::get().to(get_file))
+            .service(fs::Files::new("/", "./static").index_file("index.html"))
     })
     .bind(("127.0.0.1", 8080))?
     .run()

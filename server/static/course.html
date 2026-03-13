@@ -10,15 +10,17 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 20px;
         }
         .container {
             background: white;
             padding: 2rem;
             border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            width: 500px;
+            width: 800px;
+            max-width: 100%;
         }
         h2 {
             text-align: center;
@@ -37,6 +39,38 @@
         .value {
             margin-top: 5px;
         }
+        .content-items {
+            margin-top: 20px;
+        }
+        .content-item {
+            border-left: 3px solid #667eea;
+            padding-left: 15px;
+            margin-bottom: 20px;
+        }
+        .content-item h4 {
+            margin: 5px 0;
+            color: #333;
+        }
+        .text-content {
+            background: #f9f9f9;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        .file-list {
+            list-style: none;
+            padding: 0;
+        }
+        .file-list li {
+            margin: 5px 0;
+        }
+        .file-list a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .file-list a:hover {
+            text-decoration: underline;
+        }
         .back-link {
             display: block;
             text-align: center;
@@ -44,12 +78,18 @@
             color: #667eea;
             text-decoration: none;
         }
+        .error {
+            color: red;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>Информация о курсе</h2>
+        <h2 id="courseTitle">Загрузка...</h2>
         <div id="courseInfo"></div>
+        <div id="contentItems" class="content-items"></div>
+        <div id="error" class="error"></div>
         <a href="/user-info.html" class="back-link">← Назад к информации о пользователе</a>
     </div>
     <script src="dist/course.js"></script>

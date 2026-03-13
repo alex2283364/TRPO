@@ -59,3 +59,34 @@ pub struct Course {
     pub start_date: NaiveDate,
     pub end_date: NaiveDate,
 }
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct ContentOrderItem {
+    pub content_order: i32,      // порядок элемента
+    pub inventory_id: i32,       // идентификатор элемента в inventory
+    pub r#type: String,          // "text" или "file"
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct TextContent {
+    pub textсontent: String,     // содержимое текста (обратите внимание на орфографию)
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct FileInfo {
+    pub id: i32,                  // идентификатор файла (для скачивания)
+    pub file_name: String,
+    pub extension: String,
+    pub path: String,
+}
+
+// Составной ответ для клиента
+#[derive(Debug, Serialize)]
+pub struct CourseContentItem {
+    pub order: i32,
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<FileInfo>,
+}
