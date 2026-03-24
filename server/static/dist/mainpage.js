@@ -220,10 +220,10 @@ console.log('Все параметры:', allParams);
         return response.json();
     })).then((items) => {
         //throw new Error('Начало обработки');
-        if (!items)
+        if (!items){
             throw new Error('Ничего не получено');
-            return;
-        contentItems.innerHTML = '<h3>Содержание курса</h3>';
+        }
+        contentItems.innerHTML += '<h3>Содержание курса</h3>';
         // Сортируемлучай)
         //items.sort((a, b) => a.order - b.order); по order (на всякий с
         for (const item of items) {
