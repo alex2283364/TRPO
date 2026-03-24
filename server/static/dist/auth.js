@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (result.role_bound) {
                     localStorage.setItem('username', login);
                     showMessage('Успешный вход! Перенаправление...', 'success', messageDiv);
-                    setTimeout(() => window.location.href = '/user-info.html', 500);
+                    setTimeout(() => window.location.href = '/mainpage.html', 500);
                 }
                 else {
                     currentLogin = login;
@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok && result.success) {
                 localStorage.setItem('username', currentLogin);
                 showMessage('Роль привязана! Перенаправление...', 'success', bindMessageDiv);
-                setTimeout(() => window.location.href = '/user-info.html', 500);
+                setTimeout(() => window.location.href = '/mainpage.html', 500);
             }
             else {
                 const errorMsg = result.error || 'Ошибка привязки роли';

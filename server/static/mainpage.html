@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>В начало</title>
+    <link rel="stylesheet" href="./css/mainpage.css">
+</head>
+<body>
+    <div class="header">
+        <div class="logo">Система контроля знаний</div>
+        <div class="header-action">
+            <a href="#" class="cabinet-link">Личный кабинет</a>
+            <a href="#" class="logout-link">Выход</a>
+        </div>
+    </div>
+    
+    <div class="main-container">
+        <div class="page-title">
+            <!--Пропал стиль-->
+            <div class="helloUser"></div>
+        </div>
+        
+        <div class="content-wrapper">
+            <div class="sidebar">
+                <h3>Навигация</h3>
+                <ul class="nav-list">
+                    <li class="return-start"><a href="#">В начало</a></li>
+                    <li class="unwarp-curs"><a href="#">Больше...</a></li>
+                </ul>
+            </div>
+            
+            <div class="main-content">
+                <h2>Категории курсов</h2>
+                <ul class="course-list">                 
+                </ul>
+            </div>
+            
+            <div class="right-sidebar">
+                <div class="calendar-block">
+                    <h3>Календарь</h3>
+                    <div class="calendar-header">
+                        <span class="calendar-nav">←</span>
+                        <span class="calendar-month"></span>
+                        <span class="calendar-nav">→</span>
+                    </div>
+                    <!--Некоректный вывод-->
+                    <div class="calendar-grid">
+                        <div class="calendar-day-header"></div>
+                        <div class="calendar-day other-month"></div>
+                        <div class="calendar-day"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="dist/mainpage.js"></script>
+</body>
+</html>
