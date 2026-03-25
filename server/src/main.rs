@@ -2,7 +2,7 @@ mod models;
 
 use crate::models::{
     BindRoleRequest, ContentOrderItem, Course, CourseContentItem, FileInfo, LoginRequest,
-    LoginResponse, StudentInfo, TextContent, UserInfoRequest,
+    LoginResponse, StudentInfo, TaskDetails, TaskInfo, TaskResultInfo, TaskTime, UserInfoRequest,
 };
 use crate::models::{CreateUserRequest, User};
 use actix_files as fs;
@@ -270,7 +270,7 @@ async fn get_course_content(
     // 3. Для каждого элемента получить данные в зависимости от типа
     let mut result = Vec::new();
     let mut text_vec = Vec::new();
-    let mut file_vec = Vec::new();
+    //println!("{}",order_items[0].inventory_id);
     // Получаем текст через функцию get_textcontent_by_inventory
     let text = sqlx::query_scalar::<_, String>(
         "SELECT textсontent FROM base.get_textcontent_by_inventory($1)",
@@ -281,42 +281,66 @@ async fn get_course_content(
 
     match text {
         Ok(text) => {
-            for t in text{
-            text_vec.push(Some(t));
+            for t in text {
+                text_vec.push(Some(t));
             }
-        }      
+        }
         Err(e) => {
             eprintln!("Ошибка получения текста: {:?}", e);
             return HttpResponse::InternalServerError().body("Ошибка загрузки текста");
         }
     }
-
+    let mut file_vec = Vec::new();
     // Получаем файлы для данного inventory (прямой запрос с id)
-                let files =
-                    sqlx::query_as::<_, FileInfo>("SELECT * FROM base.get_files_by_inventory($1)")
-                        .bind(order_items[0].inventory_id)
-                        .fetch_all(pool)
-                        .await;
+    let files = sqlx::query_as::<_, FileInfo>("SELECT * FROM base.get_files_by_inventory($1)")
+        .bind(order_items[0].inventory_id)
+        .fetch_all(pool)
+        .await;
 
-                match files {
-                    Ok(files) if !files.is_empty() => {
-                        for f in files{
-                        //println!("файл помещен {}", f.file_name);
-                         file_vec.push(Some(f)); 
-                        }
-                    }
-                    Ok(_) => {
-                        eprintln!(
-                            "Предупреждение: для inventory_id {} нет файлов",
-                            order_items[0].inventory_id
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("Ошибка получения файлов: {:?}", e);
-                        return HttpResponse::InternalServerError().body("Ошибка загрузки файлов");
-                    }
-                }
+    match files {
+        Ok(files) if !files.is_empty() => {
+            for f in files {
+                //println!("файл помещен {}", f.file_name);
+                file_vec.push(Some(f));
+            }
+        }
+        Ok(_) => {
+            eprintln!(
+                "Предупреждение: для inventory_id {} нет файлов",
+                order_items[0].inventory_id
+            );
+        }
+        Err(e) => {
+            eprintln!("Ошибка получения файлов: {:?}", e);
+            return HttpResponse::InternalServerError().body("Ошибка загрузки файлов");
+        }
+    }
 
+    let mut task_vec: Vec<Option<TaskInfo>> = Vec::new();
+    // Получаем задания через функцию get_tasks_by_inventory
+    let task = sqlx::query_as::<_, TaskInfo>("SELECT * FROM base.get_tasks_by_inventory($1)")
+        .bind(order_items[0].inventory_id)
+        .fetch_all(pool)
+        .await;
+
+    match task {
+        Ok(task) if !task.is_empty() => {
+            for t in task {
+                //println!("Задание помещено {}", t.name);
+                task_vec.push(Some(t));
+            }
+        }
+        Ok(_) => {
+            eprintln!(
+                "Предупреждение: для inventory_id {} нет заданий",
+                order_items[0].inventory_id
+            );
+        }
+        Err(e) => {
+            eprintln!("Ошибка получения заданий: {:?}", e);
+            return HttpResponse::InternalServerError().body("Ошибка загрузки файлов");
+        }
+    }
     for item in order_items {
         match item.r#type.as_str() {
             "text" => {
@@ -325,16 +349,28 @@ async fn get_course_content(
                     r#type: "text".to_string(),
                     text: text_vec.remove(0),
                     file: None,
+                    task: None,
                 });
             }
             "file" => {
                 result.push(CourseContentItem {
-                            order: item.content_order,
-                            r#type: "file".to_string(),
-                            text: None,
-                            file: file_vec.remove(0),
-                        });
-                        //println!("файл извлечен ");
+                    order: item.content_order,
+                    r#type: "file".to_string(),
+                    text: None,
+                    file: file_vec.remove(0),
+                    task: None,
+                });
+                //println!("файл извлечен ");
+            }
+            "task" => {
+                result.push(CourseContentItem {
+                    order: item.content_order,
+                    r#type: "task".to_string(),
+                    text: None,
+                    file: None,
+                    task: task_vec.remove(0),
+                });
+                //println!("Задание извлечено ");
             }
             _ => {
                 eprintln!("Неизвестный тип элемента: {}", item.r#type);
@@ -376,6 +412,107 @@ async fn get_file(state: web::Data<AppState>, file_id: Path<i32>) -> actix_web::
     })?;
 
     Ok(file.use_last_modified(true))
+}
+
+async fn get_task_details(
+    state: web::Data<AppState>,
+    task_id: Path<(i32, i32)>,
+    query: Query<UsernameQuery>,
+) -> impl Responder {
+    let params = task_id.into_inner();
+    let task_id = params.0;
+    let time_id = params.1;
+    let username = &query.username;
+    let pool = &state.student_pool;
+    //println!("{} - {}",task_id,time_id);
+    // 1. Получаем временные рамки задания
+    let geted_time = sqlx::query_as::<_, TaskTime>("SELECT * FROM base.get_time_by_id($1)")
+        .bind(time_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| {
+            eprintln!("Ошибка получения времени задания: {:?}", e);
+            HttpResponse::InternalServerError().body("Ошибка получения времени задания")
+        });
+    let time;
+    match geted_time {
+        Ok(geted_time) => {
+            time = geted_time;
+        }
+        Err(e) => {
+            eprintln!("Ошибка получения заданий: {:?}", e);
+            return HttpResponse::InternalServerError().body("Ошибка загрузки файлов");
+        }
+    }
+    // 2. Получаем файлы, прикрепленные к заданию
+    let geted_task_files =
+        sqlx::query_as::<_, FileInfo>("SELECT * FROM base.get_files_by_task($1)")
+            .bind(task_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                eprintln!("Ошибка получения файлов задания: {:?}", e);
+                HttpResponse::InternalServerError().body("Ошибка получения файлов задания")
+            });
+    let task_files;
+    match geted_task_files {
+        Ok(geted_task_files) => {
+            task_files = geted_task_files;
+        }
+        Err(e) => {
+            eprintln!("Ошибка получения заданий: {:?}", e);
+            return HttpResponse::InternalServerError().body("Ошибка загрузки файлов");
+        }
+    }
+    // 3. Получаем результат выполнения задания пользователем
+    let geted_result = sqlx::query_as::<_, TaskResultInfo>(
+        "SELECT * FROM base.get_taskresult_by_task_and_user($1, $2)",
+    )
+    .bind(task_id)
+    .bind(username)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| {
+        eprintln!("Ошибка получения результата задания: {:?}", e);
+        HttpResponse::InternalServerError().body("Ошибка получения результата задания")
+    });
+    let result;
+    match geted_result {
+        Ok(geted_result) => {
+            result = geted_result;
+        }
+        Err(e) => {
+            eprintln!("Ошибка получения заданий: {:?}", e);
+            return HttpResponse::InternalServerError().body("Ошибка загрузки файлов");
+        }
+    }
+    // 4. Если результат существует, получаем файлы ответа
+    let answer_files = if let Some(ref task_result) = result {
+        let taskresult_id = task_result.id;
+        match sqlx::query_as::<_, FileInfo>("SELECT * FROM base.get_files_by_answer($1)")
+            .bind(taskresult_id)
+            .fetch_all(pool)
+            .await
+        {
+            Ok(files) => files,
+            Err(e) => {
+                eprintln!("Ошибка получения файлов ответа: {:?}", e);
+                return HttpResponse::InternalServerError().body("Ошибка получения файлов ответа");
+            }
+        }
+    } else {
+        println!("Результат не найден");
+        vec![]
+    };
+
+    let details = TaskDetails {
+        time,
+        task_files,
+        result,
+        answer_files,
+    };
+    //println!("{}", serde_json::to_string_pretty(&details).unwrap());
+    HttpResponse::Ok().json(details)
 }
 
 pub struct AppState {
@@ -423,6 +560,7 @@ async fn main() -> std::io::Result<()> {
                 web::get().to(get_course_content),
             )
             .route("/file/{file_id}", web::get().to(get_file))
+            .route("/task/{task_id}/{time_id}", web::get().to(get_task_details))
             .service(fs::Files::new("/", "./static").index_file("index.html"))
     })
     .bind(("127.0.0.1", 8080))?

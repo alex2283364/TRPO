@@ -68,16 +68,20 @@ pub struct ContentOrderItem {
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
-pub struct TextContent {
-    pub textсontent: String,     // содержимое текста (обратите внимание на орфографию)
-}
-
-#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct FileInfo {
     pub id: i32,                  // идентификатор файла (для скачивания)
     pub file_name: String,
     pub extension: String,
     pub path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct TaskInfo {
+    pub id: i32,                  // идентификатор файла (для скачивания)
+    pub time_id: i32,
+    pub name: String,
+    pub qdescription: String,
+    pub adescription: String,
 }
 
 // Составной ответ для клиента
@@ -89,4 +93,29 @@ pub struct CourseContentItem {
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<FileInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<TaskInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct TaskTime {
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+pub struct TaskResultInfo {
+    pub id: i32,
+    pub validation: String,
+    pub create_date: NaiveDateTime,
+    pub result: Option<String>,
+    pub answertext: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TaskDetails {
+    pub time: Option<TaskTime>,
+    pub task_files: Vec<FileInfo>,
+    pub result: Option<TaskResultInfo>,
+    pub answer_files: Vec<FileInfo>,
 }

@@ -38,7 +38,7 @@ window.loadCourses = function() {
             a.textContent = course.name;
             a.className="targetcourse";
             a.id="targetcourse";
-            a.href = `course.html?&id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
+            a.href = `&id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
             li.appendChild(a);
             navContainer.appendChild(li);
         });
@@ -199,14 +199,14 @@ console.log('Все параметры:', allParams);
             <div class="value">${course.end_date}</div>
         </div>
     `;
-    //const username = localStorage.getItem('username');
-    //if (!username) {
-    //    errorDiv.textContent = 'Необходимо войти в систему';
-     //   setTimeout(() => window.location.href = '/', 2000);
-    //    return;
-   // }
+    const username = localStorage.getItem('username');
+    if (!username) {
+        errorDiv.textContent = 'Необходимо войти в систему';
+        setTimeout(() => window.location.href = '/', 2000);
+        return;
+    }
     // Загружаем содержимое курса
-    fetch(`/course-content/${course.id}?username=${'test5'}`)
+    fetch(`/course-content/${course.id}?username=${username}`)
         .then((response) => __awaiter(void 0, void 0, void 0, function* () {
         if (response.status === 403) {
             errorDiv.textContent = 'У вас нет доступа к этому курсу';
@@ -227,6 +227,7 @@ console.log('Все параметры:', allParams);
         // Сортируемлучай)
         //items.sort((a, b) => a.order - b.order); по order (на всякий с
         for (const item of items) {
+            console.log(item.type);
             const div = document.createElement('div');
             div.className = 'content-item';
             if (item.type === 'text' && item.text) {
@@ -241,6 +242,14 @@ console.log('Все параметры:', allParams);
                         </a>
                     `;
             }
+            else if (item.type === 'task' && item.task) {
+                div.innerHTML = `
+                        <a href="&id=${item.task.id}&time_id=${item.task.time_id}&name=${encodeURIComponent(item.task.name)}&qdescription=${encodeURIComponent(item.task.qdescription)}&adescription=${encodeURIComponent(item.task.adescription)}"
+                        class="task">
+                        ${item.task.name}
+                        </a>
+                    `;
+            }
             else {
                 continue; // пропускаем пустые
             }
@@ -252,6 +261,178 @@ console.log('Все параметры:', allParams);
         errorDiv.textContent = 'Не удалось загрузить содержимое курса';
     });
 }
+
+window.loadTargetTask = async function(taskData) {
+    // 1. Парсим параметры из строки (исправляем возможный начальный '&')
+    let paramsStr = taskData;
+    if (paramsStr.startsWith('&')) {
+        paramsStr = '?' + paramsStr.substring(1);
+    }
+    const params = new URLSearchParams(paramsStr);
+    const task = {
+        id: params.get('id') || '',
+        time_id: params.get('time_id') || '',
+        name: params.get('name') || '',
+        qdescription: params.get('qdescription') || '',
+        adescription: params.get('adescription') || ''
+    };
+
+    // 2. Подготовка DOM-элементов
+    const taskInfo = document.querySelector('.main-content');
+    if (!taskInfo) return;
+
+    taskInfo.innerHTML = `
+        <h2 id="courseTitle">Загрузка...</h2>
+        <div id="courseInfo"></div>
+        <div id="contentItems" class="content-items"></div>
+        <div id="error" class="error"></div>
+    `;
+    const title = document.getElementById('courseTitle');
+    const contentItems = document.getElementById('contentItems');
+    const errorDiv = document.getElementById('error');
+
+    if (!task.id || !task.time_id) {
+        errorDiv.textContent = 'Некорректные параметры задания';
+        return;
+    }
+
+    title.textContent = task.name;
+
+    // 3. Получаем имя пользователя
+    const username = localStorage.getItem('username');
+    if (!username) {
+        errorDiv.textContent = 'Необходимо войти в систему';
+        setTimeout(() => window.location.href = '/', 2000);
+        return;
+    }
+
+    // 4. Запрос к серверу
+    try {
+        const response = await fetch(`/task/${task.id}/${task.time_id}?username=${encodeURIComponent(username)}`);
+
+        if (response.status === 403) {
+            errorDiv.textContent = 'У вас нет доступа к этому заданию';
+            return;
+        }
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text);
+        }
+
+        const data = await response.json();
+
+        // 5. Отрисовка данных
+        // Очищаем контейнер, оставляя возможность добавлять блоки
+        contentItems.innerHTML = '';
+
+        // 5.1. Описания (из параметров URL)
+        if (task.qdescription) {
+            const descBlock = document.createElement('div');
+            descBlock.className = 'field';
+            descBlock.innerHTML = `
+                <div class="label">Описание задания</div>
+                <div class="value">${task.qdescription.replace(/\n/g, '<br>')}</div>
+            `;
+            contentItems.appendChild(descBlock);
+        }
+        if (task.adescription) {
+            const ansDescBlock = document.createElement('div');
+            ansDescBlock.className = 'field';
+            ansDescBlock.innerHTML = `
+                <div class="label">Описание ответа</div>
+                <div class="value">${task.adescription.replace(/\n/g, '<br>')}</div>
+            `;
+            contentItems.appendChild(ansDescBlock);
+        }
+
+        // 5.2. Временные рамки
+        if (data.time) {
+            const timeBlock = document.createElement('div');
+            timeBlock.className = 'time-info';
+            timeBlock.innerHTML = `
+                <h3>Время выполнения</h3>
+                <div class="field"><div class="label">Начало</div><div class="value">${data.time.start_date || '—'}</div></div>
+                <div class="field"><div class="label">Окончание</div><div class="value">${data.time.end_date || '—'}</div></div>
+            `;
+            contentItems.appendChild(timeBlock);
+        }
+
+        // 5.3. Файлы задания
+        if (data.task_files && data.task_files.length > 0) {
+            const filesBlock = document.createElement('div');
+            filesBlock.className = 'task-files';
+            filesBlock.innerHTML = '<h3>Файлы задания</h3><ul></ul>';
+            const list = filesBlock.querySelector('ul');
+            data.task_files.forEach(file => {
+                const li = document.createElement('li');
+                const link = document.createElement('a');
+                link.href = `/file/${file.id}`;
+                link.download = true;
+                link.textContent = `${file.file_name}.${file.extension}`;
+                li.appendChild(link);
+                list.appendChild(li);
+            });
+            contentItems.appendChild(filesBlock);
+        }
+
+        // 5.4. Результат выполнения
+        if (data.result) {
+            const resultBlock = document.createElement('div');
+            resultBlock.className = 'task-result';
+            resultBlock.innerHTML = `
+                <h3>Результат</h3>
+                <div class="field"><div class="label">Дата ответа</div><div class="value">${data.result.create_date || '—'}</div></div>
+                <div class="field"><div class="label">Статус</div><div class="value">${data.result.validation || '—'}</div></div>
+                <div class="field"><div class="label">Оценка</div><div class="value">${data.result.result !== undefined ? data.result.result : '—'}</div></div>
+            `;
+            if(data.result.answertext&&data.result.answertext.length > 0)
+            {
+                resultBlock.innerHTML += `
+                <div class="field"><div class="label">Представленный ответ на задание: </div><div class="value">${data.result.answertext ? data.result.answertext.replace(/\n/g, '<br>') : '—'}</div></div>
+                `;
+            }
+            contentItems.appendChild(resultBlock);
+     
+            // 5.5. Файлы ответа (если есть)
+            if (data.answer_files && data.answer_files.length > 0) {
+                const answerFilesBlock = document.createElement('div');
+                answerFilesBlock.className = 'answer-files';
+                answerFilesBlock.innerHTML = '<h3>Файлы ответа</h3><ul></ul>';
+                const list = answerFilesBlock.querySelector('ul');
+                data.answer_files.forEach(file => {
+                    const li = document.createElement('li');
+                    const link = document.createElement('a');
+                    link.href = `/file/${file.id}`;
+                    link.download = true;
+                    link.textContent = `${file.file_name}.${file.extension}`;
+                    li.appendChild(link);
+                    list.appendChild(li);
+                });
+                contentItems.appendChild(answerFilesBlock);
+            }
+        } else {
+            // Если результат не найден, показываем кнопку для сдачи (опционально)
+            const noResultBlock = document.createElement('div');
+            noResultBlock.className = 'no-result';
+            noResultBlock.innerHTML = `
+                <p>Задание еще не сдано.</p>
+                <button id="submitTaskBtn" class="btn">Сдать задание</button>
+            `;
+            contentItems.appendChild(noResultBlock);
+
+            // Обработчик кнопки сдачи – можно реализовать отдельно
+            document.getElementById('submitTaskBtn')?.addEventListener('click', () => {
+                // Здесь можно открыть форму загрузки файлов
+                alert('Функция сдачи задания пока не реализована');
+            });
+        }
+
+    } catch (err) {
+        console.error('Ошибка загрузки задания:', err);
+        errorDiv.textContent = 'Не удалось загрузить данные задания';
+    }
+};
+
 
 // Некоректный вывод
 window.updateCalendar = function() {
@@ -319,5 +500,21 @@ document.addEventListener('DOMContentLoaded', () => {
         
         loadTargetCourse(e.target.href);
     }
+
+    
+});
+document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('task')) {
+        e.preventDefault();
+        const taskName = e.target.textContent.trim();
+        console.log("Click on task:", taskName);
+        
+        // Здесь вызовите функцию загрузки курса
+        // Например, с передачей данных:
+        
+        loadTargetTask(e.target.href);
+    }
+   
+    
 });
 });
