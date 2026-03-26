@@ -349,10 +349,9 @@ CREATE FUNCTION base.get_taskresult_by_task_and_user(p_task_id integer, p_user_n
     AS $$
     SELECT tr.id, tr.validation, tr.create_date, tr."result", tr.answertext
     FROM base.taskresult tr
-    JOIN base.task t ON t.id = p_task_id
     JOIN base.users u ON u.user_name = p_user_name
     JOIN base.tasknotification tn ON tn.user_id = u.id
-    WHERE tr.id = tn.taskresult_id;
+    WHERE tr.id = tn.taskresult_id and tr.task_id = p_task_id;
 $$;
 
 
@@ -407,25 +406,27 @@ $$;
 ALTER FUNCTION base.get_time_by_id(p_time_id integer) OWNER TO postgres;
 
 --
--- Name: set_answer(character varying, integer, integer, text, character varying, character varying, character varying, integer); Type: FUNCTION; Schema: base; Owner: postgres
+-- Name: set_answer(character varying, integer, integer, text, integer); Type: FUNCTION; Schema: base; Owner: postgres
 --
 
-CREATE FUNCTION base.set_answer(p_username character varying, p_answer_id integer, p_task_id integer, p_answertext text, p_file_name character varying, p_path character varying, p_extension character varying, p_size integer) RETURNS boolean
+CREATE FUNCTION base.set_answer(p_username character varying, p_answer_id integer, p_task_id integer, p_answertext text, p_file_id integer) RETURNS boolean
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
 v_taskresult_id_old INTEGER;
-v_file_id_old INTEGER;
 v_taskresult_id_new INTEGER;
-v_file_id_new INTEGER;
 v_user_id INTEGER;
 BEGIN
-    DELETE FROM base.answerfile
-    WHERE base.answerfile.taskresult_id = p_answer_id
-    RETURNING base.answerfile.file_id INTO v_file_id_old;
+    Select u.id from base.users u 
+    where u.user_name = p_username 
+    INTO v_user_id;
 
-    DELETE FROM base.file
-    WHERE base.file.id = v_file_id_old;
+    DELETE FROM base.answerfile
+    WHERE base.answerfile.taskresult_id = p_answer_id;
+
+    DELETE FROM base.tasknotification
+    WHERE base.tasknotification.user_id = v_user_id
+    AND base.tasknotification.taskresult_id = p_answer_id;
 
     DELETE FROM base.taskresult
     WHERE base.taskresult.id = p_answer_id;
@@ -434,25 +435,39 @@ BEGIN
     VALUES (p_task_id,NOW(),p_answertext)
     RETURNING base.taskresult.id INTO v_taskresult_id_new;
 
-    INSERT INTO base.file (file_name,path,extension,size)
-    VALUES (p_file_name,p_path,p_extension,p_size)
-    RETURNING base.file.id INTO v_file_id_new;
-
     INSERT INTO base.answerfile (taskresult_id,file_id)
-    VALUES (v_taskresult_id_new,v_file_id_new);
-
-    Select u.id from base.users u 
-    where u.user_name = p_username 
-    INTO v_user_id;
+    VALUES (v_taskresult_id_new,p_file_id);   
 
     INSERT INTO base.tasknotification (taskresult_id,user_id,type,relevance)
     VALUES (v_taskresult_id_new,v_user_id,'answer','new');
+
     return true;
 END;
 $$;
 
 
-ALTER FUNCTION base.set_answer(p_username character varying, p_answer_id integer, p_task_id integer, p_answertext text, p_file_name character varying, p_path character varying, p_extension character varying, p_size integer) OWNER TO postgres;
+ALTER FUNCTION base.set_answer(p_username character varying, p_answer_id integer, p_task_id integer, p_answertext text, p_file_id integer) OWNER TO postgres;
+
+--
+-- Name: upload_file(character varying, character varying, character varying, integer); Type: FUNCTION; Schema: base; Owner: postgres
+--
+
+CREATE FUNCTION base.upload_file(p_file_name character varying, p_path character varying, p_extension character varying, p_size integer) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+DECLARE
+v_file_id INTEGER;
+BEGIN  
+    INSERT INTO base.file (file_name,path,extension,size)
+    VALUES (p_file_name,p_path,p_extension,p_size)
+    RETURNING base.file.id INTO v_file_id;
+
+    return v_file_id;
+END;
+$$;
+
+
+ALTER FUNCTION base.upload_file(p_file_name character varying, p_path character varying, p_extension character varying, p_size integer) OWNER TO postgres;
 
 SET default_tablespace = '';
 
@@ -694,7 +709,7 @@ ALTER SEQUENCE base.groups_id_seq OWNED BY base.groups.id;
 
 CREATE TABLE base.inventory (
     id integer NOT NULL,
-    create_state character varying(50),
+    create_state timestamp without time zone,
     que_date timestamp without time zone
 );
 
@@ -1382,7 +1397,9 @@ ALTER TABLE ONLY base.users ALTER COLUMN id SET DEFAULT nextval('base.users_id_s
 --
 
 COPY base.answerfile (taskresult_id, file_id) FROM stdin;
-8	7
+11	12
+12	13
+13	14
 \.
 
 
@@ -1404,6 +1421,11 @@ COPY base.contentorder (id, type, cotent_order, inventory_id) FROM stdin;
 3	text	2	1
 4	file	3	1
 5	task	4	1
+6	text	0	2
+7	task	1	2
+8	text	0	3
+9	task	1	3
+10	task	5	1
 \.
 
 
@@ -1424,8 +1446,8 @@ COPY base.courses (id, name, description, start_date, end_date) FROM stdin;
 
 COPY base.coursesinventory (courses_id, inventory_id) FROM stdin;
 1	1
-2	1
-3	1
+2	2
+3	3
 \.
 
 
@@ -1457,7 +1479,10 @@ COPY base.file (id, file_name, path, extension, size) FROM stdin;
 2	test	file/inventory/	pdf	\N
 1	test	file/inventory/	txt	\N
 3	task	file/task/	docx	\N
-7	testanswer	file/answers/	txt	0
+10	test	test/	file/test	8
+12	АИС ЛР + 5-6 (1)...48ccee4c-c4fa-43e6-8b06-8e20c77e6aaf	./file/answers/	docx	27978
+13	10.Доклад...7c6accb4-090d-453b-bb95-b8aee8541269	./file/answers/	docx	504607
+14	Solid_AdultEn...304439e5-f09f-4dde-83d5-6605233c6f35	./file/answers/	xml	319785
 \.
 
 
@@ -1476,7 +1501,9 @@ COPY base.groups (id, name, academic_year, max_students) FROM stdin;
 --
 
 COPY base.inventory (id, create_state, que_date) FROM stdin;
-1	01.01.2026	2026-05-25 00:00:00
+1	2026-01-01 00:00:00	2026-05-25 00:00:00
+2	2026-01-01 00:00:00	2026-05-25 00:00:00
+3	2026-05-25 00:00:00	2026-06-25 00:00:00
 \.
 
 
@@ -1496,6 +1523,9 @@ COPY base.inventoryfile (inventory_id, file_id) FROM stdin;
 
 COPY base.inventorytask (inventory_id, tasklist_id) FROM stdin;
 1	1
+2	2
+3	3
+1	4
 \.
 
 
@@ -1506,6 +1536,8 @@ COPY base.inventorytask (inventory_id, tasklist_id) FROM stdin;
 COPY base.inventorytext (inventory_id, textitem_id) FROM stdin;
 1	1
 1	2
+2	3
+3	4
 \.
 
 
@@ -1577,7 +1609,10 @@ COPY base.students (id, lastname, firstname, patronymic, student_code, role_id) 
 --
 
 COPY base.task (id, name, time_id, qdescription, adescription) FROM stdin;
-1	Задание1	1	Задание 1 описание	Описание ответа 1
+2	Задание Курс2	1	Задание Курс2 описание	Описание ответа Курс2
+3	Задание КурсОбщий	1	Задание КурсОбщий описание	Описание ответа 1 КурсОбщий
+1	Задание1 Курс1	1	Задание 1 описание	Описание ответа 1
+4	Задание2 Курс1	1	Задание 2 описание	Описание ответа 2
 \.
 
 
@@ -1603,7 +1638,9 @@ COPY base.taskfile (task_id, file_id) FROM stdin;
 --
 
 COPY base.tasknotification (taskresult_id, user_id, type, relevance) FROM stdin;
-8	48	answer	new
+11	48	answer	new
+12	49	answer	new
+13	48	answer	new
 \.
 
 
@@ -1612,7 +1649,9 @@ COPY base.tasknotification (taskresult_id, user_id, type, relevance) FROM stdin;
 --
 
 COPY base.taskresult (id, task_id, validation, create_date, result, answertext) FROM stdin;
-8	1	verification	2026-03-25 19:56:09.753392	\N	Тест ответа
+11	1	verification	2026-03-26 16:29:05.710889	\N	ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ\nЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,\nйцукенгшщзхъфывапролджэячсмитьбю.\nQWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?\nqwertyuiop[]asdfghjkl;'zxcvbnm,./\n1234567890-=!@#$%^&*()_+~`
+12	3	verification	2026-03-26 17:00:15.100727	\N	ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ\nЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,\nйцукенгшщзхъфывапролджэячсмитьбю.\nQWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?\nqwertyuiop[]asdfghjkl;'zxcvbnm,./\n1234567890-=!@#$%^&*()_+~`
+13	3	verification	2026-03-26 17:01:26.23245	\N	ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ\nЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,\nйцукенгшщзхъфывапролджэячсмитьбю.\nQWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?\nqwertyuiop[]asdfghjkl;'zxcvbnm,./\n1234567890-=!@#$%^&*()_+~`
 \.
 
 
@@ -1671,6 +1710,8 @@ COPY base.testresult (id, mark, create_date) FROM stdin;
 COPY base.textitem (id, "textсontent") FROM stdin;
 2	Тест текста2
 1	Тест текста1
+3	Текст курс 2
+4	Текст курс общий
 \.
 
 
@@ -1729,7 +1770,7 @@ SELECT pg_catalog.setval('base.comment_id_seq', 1, false);
 -- Name: contentorder_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.contentorder_id_seq', 3, true);
+SELECT pg_catalog.setval('base.contentorder_id_seq', 10, true);
 
 
 --
@@ -1743,7 +1784,7 @@ SELECT pg_catalog.setval('base.courses_id_seq', 3, true);
 -- Name: file_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.file_id_seq', 7, true);
+SELECT pg_catalog.setval('base.file_id_seq', 14, true);
 
 
 --
@@ -1757,7 +1798,7 @@ SELECT pg_catalog.setval('base.groups_id_seq', 2, true);
 -- Name: inventory_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.inventory_id_seq', 1, true);
+SELECT pg_catalog.setval('base.inventory_id_seq', 3, true);
 
 
 --
@@ -1785,14 +1826,14 @@ SELECT pg_catalog.setval('base.students_id_seq', 3, true);
 -- Name: task_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.task_id_seq', 1, false);
+SELECT pg_catalog.setval('base.task_id_seq', 4, true);
 
 
 --
 -- Name: taskresult_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.taskresult_id_seq', 8, true);
+SELECT pg_catalog.setval('base.taskresult_id_seq', 13, true);
 
 
 --
@@ -1820,7 +1861,7 @@ SELECT pg_catalog.setval('base.testresult_id_seq', 1, false);
 -- Name: textitem_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.textitem_id_seq', 1, true);
+SELECT pg_catalog.setval('base.textitem_id_seq', 5, true);
 
 
 --
@@ -2424,10 +2465,17 @@ GRANT ALL ON FUNCTION base.get_time_by_id(p_time_id integer) TO admin;
 
 
 --
--- Name: FUNCTION set_answer(p_username character varying, p_answer_id integer, p_task_id integer, p_answertext text, p_file_name character varying, p_path character varying, p_extension character varying, p_size integer); Type: ACL; Schema: base; Owner: postgres
+-- Name: FUNCTION set_answer(p_username character varying, p_answer_id integer, p_task_id integer, p_answertext text, p_file_id integer); Type: ACL; Schema: base; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION base.set_answer(p_username character varying, p_answer_id integer, p_task_id integer, p_answertext text, p_file_name character varying, p_path character varying, p_extension character varying, p_size integer) TO admin;
+GRANT ALL ON FUNCTION base.set_answer(p_username character varying, p_answer_id integer, p_task_id integer, p_answertext text, p_file_id integer) TO admin;
+
+
+--
+-- Name: FUNCTION upload_file(p_file_name character varying, p_path character varying, p_extension character varying, p_size integer); Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION base.upload_file(p_file_name character varying, p_path character varying, p_extension character varying, p_size integer) TO admin;
 
 
 --

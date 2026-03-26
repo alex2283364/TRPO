@@ -119,3 +119,12 @@ pub struct TaskDetails {
     pub result: Option<TaskResultInfo>,
     pub answer_files: Vec<FileInfo>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct SetAnswerRequest {
+    pub username: String,
+    pub answer_id: i32,
+    pub task_id: i32,
+    pub answertext: String,
+    pub file_id: i32,
+}

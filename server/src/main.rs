@@ -3,6 +3,7 @@ mod models;
 use crate::models::{
     BindRoleRequest, ContentOrderItem, Course, CourseContentItem, FileInfo, LoginRequest,
     LoginResponse, StudentInfo, TaskDetails, TaskInfo, TaskResultInfo, TaskTime, UserInfoRequest,
+    SetAnswerRequest,
 };
 use crate::models::{CreateUserRequest, User};
 use actix_files as fs;
@@ -14,6 +15,10 @@ use serde::Deserialize;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::env;
 use std::path::PathBuf;
+use actix_multipart::Multipart;
+use futures_util::TryStreamExt as _;
+use uuid::Uuid;
+use std::io::Write;
 
 // Обработчик для получения списка пользователей
 async fn get_users(state: web::Data<AppState>) -> impl Responder {
@@ -515,6 +520,129 @@ async fn get_task_details(
     HttpResponse::Ok().json(details)
 }
 
+async fn upload_file(
+    state: web::Data<AppState>,
+    mut payload: Multipart,
+) -> impl Responder {
+    let mut original_filename = String::new();
+    let mut file_data: Option<Vec<u8>> = None;
+    let mut extension = String::new();
+
+    // Обрабатываем поля multipart
+    loop {
+        let mut next_field = match payload.try_next().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            Err(e) => {
+                eprintln!("Ошибка чтения поля: {}", e);
+                return HttpResponse::BadRequest().body("Ошибка чтения данных формы");
+            }
+        };
+        let content_disposition = next_field.content_disposition();
+        if let Some(name) = content_disposition.get_name() {
+            if name == "file" {
+                // Получаем имя файла
+                if let Some(filename) = content_disposition.get_filename() {
+                    if let Some(dot_pos) = filename.rfind('.') {
+                        original_filename = filename[..dot_pos].to_string();
+                        extension = filename[dot_pos+1..].to_string();
+                    } else {
+                        original_filename = filename.to_string();
+                        extension = "".to_string();
+                    }
+                }
+                // Читаем данные файла
+                let mut bytes = Vec::new();
+                loop {
+                    match next_field.try_next().await {
+                        Ok(Some(chunk)) => bytes.extend_from_slice(&chunk),
+                        Ok(None) => break,
+                        Err(e) => {
+                            eprintln!("Ошибка чтения данных файла: {}", e);
+                            return HttpResponse::BadRequest().body("Ошибка чтения файла");
+                        }
+                    }
+                }
+                file_data = Some(bytes);
+            }
+        }
+    }
+
+    let file_data = match file_data {
+        Some(data) => data,
+        None => return HttpResponse::BadRequest().body("Файл не передан"),
+    };
+    let size = file_data.len() as i32;
+
+    // Генерируем UUID для имени файла в базе
+    let uuid = Uuid::new_v4();
+    let file_name_db = original_filename +"..."+ &uuid.to_string();
+    let new_filename = format!("{}.{}", file_name_db, extension);
+    let upload_dir = "./file/answers/";
+    let full_path = format!("{}{}", upload_dir, new_filename);
+
+    // Создаём директорию, если её нет
+    if let Err(e) = std::fs::create_dir_all(upload_dir) {
+        eprintln!("Не удалось создать директорию: {}", e);
+        return HttpResponse::InternalServerError().body("Ошибка сервера");
+    }
+
+    // Сохраняем файл
+    if let Err(e) = std::fs::write(&full_path, &file_data) {
+        eprintln!("Ошибка сохранения файла: {}", e);
+        return HttpResponse::InternalServerError().body("Ошибка сохранения файла");
+    }
+
+    // Вызываем функцию базы данных
+    let pool = &state.public_pool;
+    let file_id = match sqlx::query_scalar::<_, i32>(
+        "SELECT base.upload_file($1, $2, $3, $4)"
+    )
+    .bind(&file_name_db)
+    .bind(upload_dir)
+    .bind(&extension)
+    .bind(size)
+    .fetch_one(pool)
+    .await {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!("Ошибка записи в базу данных: {}", e);
+            // Удаляем файл, если не удалось записать в БД
+            let _ = std::fs::remove_file(&full_path);
+            return HttpResponse::InternalServerError().body("Ошибка сохранения в базу данных");
+        }
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({ "file_id": file_id }))
+}
+
+async fn set_answer(
+    state: web::Data<AppState>,
+    req: web::Json<SetAnswerRequest>,
+) -> impl Responder {
+    let pool = &state.student_pool;
+    let result = sqlx::query_scalar::<_, bool>("SELECT base.set_answer($1, $2, $3, $4, $5)")
+        .bind(&req.username)
+        .bind(req.answer_id)
+        .bind(req.task_id)
+        .bind(&req.answertext)
+        .bind(req.file_id)
+        .fetch_one(pool)
+        .await;
+
+    match result {
+        Ok(true) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
+        Ok(false) => HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": "Не удалось сохранить ответ"
+        })),
+        Err(e) => {
+            eprintln!("Ошибка при сохранении ответа: {:?}", e);
+            HttpResponse::InternalServerError().body("Ошибка сервера")
+        }
+    }
+}
+
 pub struct AppState {
     public_pool: PgPool,
     student_pool: PgPool,
@@ -561,6 +689,8 @@ async fn main() -> std::io::Result<()> {
             )
             .route("/file/{file_id}", web::get().to(get_file))
             .route("/task/{task_id}/{time_id}", web::get().to(get_task_details))
+            .route("/set-answer", web::post().to(set_answer))
+            .route("/upload", web::post().to(upload_file))
             .service(fs::Files::new("/", "./static").index_file("index.html"))
     })
     .bind(("127.0.0.1", 8080))?
