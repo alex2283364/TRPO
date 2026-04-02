@@ -1,0 +1,27 @@
+/* Контейнер информации о пользователе */
+.user-container {
+    background-color: #ffffff;
+    border-radius: 8px;
+    padding: 25px;
+    margin: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Заголовок */
+.user-info-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 20px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #6b78d4; /* Синяя линия под заголовком */
+    display: inline-block;
+}
+
+/* Строка с информацией */
+.info-row {
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+}

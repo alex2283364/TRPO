@@ -1,78 +1,51 @@
-body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            background: white;
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            width: 800px;
-            max-width: 100%;
-        }
-        h2 {
-            text-align: center;
-            color: #333;
-        }
-        .field {
-            margin: 10px 0;
-            padding: 10px;
-            background: #f5f5f5;
-            border-radius: 4px;
-        }
-        .label {
-            font-weight: bold;
-            color: #555;
-        }
-        .value {
-            margin-top: 5px;
-        }
-        .content-items {
-            margin-top: 20px;
-        }
-        .content-item {
-            border-left: 3px solid #667eea;
-            padding-left: 15px;
-            margin-bottom: 20px;
-        }
-        .content-item h4 {
-            margin: 5px 0;
-            color: #333;
-        }
-        .text-content {
-            background: #f9f9f9;
-            padding: 10px;
-            border-radius: 4px;
-            white-space: pre-wrap;
-        }
-        .file-list {
-            list-style: none;
-            padding: 0;
-        }
-        .file-list li {
-            margin: 5px 0;
-        }
-        .file-list a {
-            color: #667eea;
-            text-decoration: none;
-        }
-        .file-list a:hover {
-            text-decoration: underline;
-        }
-        .back-link {
-            display: block;
-            text-align: center;
-            margin-top: 20px;
-            color: #667eea;
-            text-decoration: none;
-        }
-        .error {
-            color: red;
-            text-align: center;
-        }
+/* Контейнер курсов (белая панель) */
+#coursesContainer {
+    background-color: #ffffff;
+    border-radius: 10px; /* Скругление углов */
+    border: 1px solid black;
+    padding: 20px;
+    margin-top: 15px;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+/* Элементы списка (li) - используем как разделитель */
+#coursesContainer li {
+    list-style-type: none; /* Убираем точки */
+    border-bottom: 1px solid #eee; /* Тонкая линия между курсами */
+}
+#coursesContainer a {
+    list-style-type: none; /* Убираем точки */
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    color: black;
+}
+/* Убираем линию у последнего элемента */
+#coursesContainer li:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+/* Стиль названия курса (ссылка) */
+.targetcourse {
+    color: #6b78d4; /* Синий цвет как на фото */
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1.1rem;
+    display: block;
+    margin-bottom: 5px;
+    transition: color 0.2s;
+}
+
+.targetcourse:hover {
+    color: #505bb3;
+    text-decoration: underline;
+}
+
+/* Стиль описания и дат (p) */
+#coursesContainer p {
+    margin: 5px 0;
+    color: #555;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}

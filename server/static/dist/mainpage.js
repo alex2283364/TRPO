@@ -48,11 +48,17 @@ window.loadCourses = function () {
             courses.forEach(course => {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
+                li.id="coursesContainer";
                 a.textContent = course.name;
+                a.className = "targetcourse";
                 a.id = "targetcourse";
-                a.href = `course.html?&id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
+                a.href = `&id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
                 li.appendChild(a);
                 coursesContainer.appendChild(li);
+                li.innerHTML += `
+                <p>${course.description}</p>
+                <p>Начало: ${course.start_date}</p>
+                <p>Окончание: ${course.end_date}</p>`
             });
 
             // Перепривязываем обработчик для кнопки "В начало"
@@ -96,16 +102,14 @@ window.loadUserInfo = function () {
         //Переделать
         .then(data => {
             mainContainer.innerHTML = `
-            <h2>Информация о пользователе</h2>
-            <div class="info-item"><div class="label">Фамилия</div><div class="value">${data.lastname}</div></div>
-            <div class="info-item"><div class="label">Имя</div><div class="value">${data.firstname}</div></div>
-            <div class="info-item"><div class="label">Отчество</div><div class="value">${data.patronymic}</div></div>
-            <div class="info-item"><div class="label">Группа</div><div class="value">${data.groupp}</div></div>
-            <div id="user-courses"></div>
+            <h2 class = "user-info-title">Информация о пользователе</h2>
+            <div id="user-courses">
+            <div class="info-row"><div class="label">Фамилия: ${data.lastname}</div></div>
+            <div class="info-row"><div class="label">Имя: ${data.firstname}</div></div>
+            <div class="info-row"><div class="label">Отчество: ${data.patronymic}</div></div>
+            <div class="info-row"><div class="label">Группа: ${data.groupp}</div></div>
+            </div>
         `;
-
-            // Загружаем курсы пользователя
-            loadUserCourses();
 
         })
         .catch(err => {
@@ -143,7 +147,7 @@ function loadUserCourses() {
                 const link = document.createElement('a');
                 link.textContent = course.name;
                 link.id = "targetcourse";
-                link.href = `course.html?id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
+                link.href = `id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
                 item.appendChild(link);
                 list.appendChild(item);
             });
