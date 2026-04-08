@@ -49,3 +49,20 @@
     font-size: 0.9rem;
     line-height: 1.4;
 }
+
+.field{
+    background-color: #ffffff;
+    border-radius: 10px; /* Скругление углов */
+    border: 1px solid black;
+    padding: 20px;
+    margin-top: 15px;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+.field h3{
+   padding-bottom: 1rem;
+}
+
+.label{
+   font-weight: bold;
+}

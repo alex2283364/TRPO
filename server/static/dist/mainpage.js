@@ -191,14 +191,10 @@ window.loadTargetCourse = function (coursedata) {
     title.textContent = course.name;
     contentItems.innerHTML = `
         <div class="field">
-            <div class="label">Описание</div>
+            <div class="label">Общее</div>
             <div class="value">${course.description}</div>
-        </div>
-        <div class="field">
             <div class="label">Дата начала</div>
             <div class="value">${course.start_date}</div>
-        </div>
-        <div class="field">
             <div class="label">Дата окончания</div>
             <div class="value">${course.end_date}</div>
         </div>
@@ -227,11 +223,15 @@ window.loadTargetCourse = function (coursedata) {
             if (!items) {
                 throw new Error('Ничего не получено');
             }
-            contentItems.innerHTML += '<h3>Содержание курса</h3>';
+            const descBlock = document.createElement('div');
+            descBlock.className = 'field';
+            descBlock.innerHTML = `
+            <h3>Содержание курса</h3>
+            `;
+            contentItems.appendChild(descBlock);
             // Сортируемлучай)
             //items.sort((a, b) => a.order - b.order); по order (на всякий с
             for (const item of items) {
-                console.log(item.type);
                 const div = document.createElement('div');
                 div.className = 'content-item';
                 if (item.type === 'text' && item.text) {
@@ -257,7 +257,9 @@ window.loadTargetCourse = function (coursedata) {
                 else {
                     continue; // пропускаем пустые
                 }
-                contentItems.appendChild(div);
+              
+
+                descBlock.appendChild(div);
             }
         })
         .catch(err => {
@@ -334,7 +336,7 @@ window.loadTargetTask = async function (taskData) {
             const descBlock = document.createElement('div');
             descBlock.className = 'field';
             descBlock.innerHTML = `
-                <div class="label">Описание задания</div>
+                <div class="label">Общее</div>
                 <div class="value">${task.qdescription.replace(/\n/g, '<br>')}</div>
             `;
             contentItems.appendChild(descBlock);
@@ -534,38 +536,90 @@ window.loadTargetTask = async function (taskData) {
 };
 
 
-// Некоректный вывод
-window.updateCalendar = function () {
+
+// Глобальное состояние: какой месяц сейчас отображается
+window.calendarState = {
+    currentDate: new Date() // по умолчанию — текущий месяц
+};
+
+window.updateCalendar = function (targetDate = null) {
     const calendarMonth = document.querySelector('.calendar-month');
     const calendarGrid = document.querySelector('.calendar-grid');
     if (!calendarMonth || !calendarGrid) return;
 
-    const now = new Date();
+    // Если передана дата — переключаемся на неё, иначе берём из состояния
+    const displayDate = targetDate ? new Date(targetDate) : window.calendarState.currentDate;
+    window.calendarState.currentDate = displayDate; // сохраняем в состояние
+
     const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
         'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+    const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-    calendarMonth.textContent = `${months[now.getMonth()]} ${now.getFullYear()}`;
+    // Обновляем заголовок
+    calendarMonth.textContent = `${months[displayDate.getMonth()]} ${displayDate.getFullYear()}`;
 
-    const dayHeaders = Array.from(calendarGrid.querySelectorAll('.calendar-day-header'));
+    // Очищаем и пересоздаём сетку
     calendarGrid.innerHTML = '';
-    dayHeaders.forEach(h => calendarGrid.appendChild(h));
+    
+    // Заголовки дней недели
+    dayNames.forEach(day => {
+        const header = document.createElement('div');
+        header.className = 'calendar-day-header';
+        header.textContent = day;
+        calendarGrid.appendChild(header);
+    });
 
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    // Вычисления для сетки
+    const firstDay = new Date(displayDate.getFullYear(), displayDate.getMonth(), 1).getDay();
+    const daysInMonth = new Date(displayDate.getFullYear(), displayDate.getMonth() + 1, 0).getDate();
+    const adjustedFirstDay = firstDay === 0 ? 6 : firstDay - 1; // неделя с понедельника
 
-    for (let i = 0; i < firstDay; i++) {
+    // Пустые ячейки до первого дня
+    for (let i = 0; i < adjustedFirstDay; i++) {
         const empty = document.createElement('div');
         empty.className = 'calendar-day other-month';
         calendarGrid.appendChild(empty);
     }
+    
+    // Дни месяца
+    const today = new Date();
+    const isCurrentMonth = displayDate.getMonth() === today.getMonth() && 
+                           displayDate.getFullYear() === today.getFullYear();
+    
     for (let day = 1; day <= daysInMonth; day++) {
         const dayEl = document.createElement('div');
-        dayEl.className = 'calendar-day' + (day === now.getDate() ? ' today' : '');
+        dayEl.className = 'calendar-day' + 
+            (isCurrentMonth && day === today.getDate() ? ' today' : '');
         dayEl.textContent = day;
+        dayEl.dataset.date = `${displayDate.getFullYear()}-${String(displayDate.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         calendarGrid.appendChild(dayEl);
     }
 }
 
+// === Инициализация навигации ===
+document.addEventListener('DOMContentLoaded', () => {
+    // Первоначальная отрисовка
+    window.updateCalendar();
+
+    // Обработчики кнопок ← →
+    document.querySelectorAll('.calendar-nav').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const direction = e.target.textContent.trim();
+            const current = window.calendarState.currentDate;
+            const newDate = new Date(current);
+            
+            if (direction === '←') {
+                // Предыдущий месяц
+                newDate.setMonth(newDate.getMonth() - 1);
+            } else if (direction === '→') {
+                // Следующий месяц
+                newDate.setMonth(newDate.getMonth() + 1);
+            }
+            
+            window.updateCalendar(newDate);
+        });
+    });
+});
 
 // === ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ ===
 document.addEventListener('DOMContentLoaded', () => {
@@ -614,7 +668,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
             loadTargetTask(e.target.href);
         }
-
-
     });
 });
