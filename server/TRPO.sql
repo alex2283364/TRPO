@@ -188,10 +188,10 @@ BEGIN
         RETURN False;
     END IF;
     -- Ищем роль по коду
-   SELECT r.id
+   SELECT ut.id
    INTO v_role_id
-   FROM base.role r
-   WHERE (r.permission_oid = role_pasword);
+   FROM base.userroletype ut
+   WHERE (ut.permission_oid = role_pasword);
     IF NOT FOUND THEN
         RETURN False;
     END IF;
@@ -222,12 +222,12 @@ CREATE FUNCTION base.get_contentorder_by_course(p_course_id integer) RETURNS TAB
     AS $$
 	    SELECT co.Cotent_order, i.id, co.type
 	    FROM base.contentorder co
-	    JOIN base.courses c ON c.id = p_course_id
-	    JOIN base.coursesInventory ci ON ci.courses_id = c.id
+	    JOIN base.cours c ON c.id = p_course_id
+	    JOIN base.coursInventory ci ON ci.cours_id = c.id
 	    JOIN base.inventory i ON i.id = ci.inventory_id
 	    WHERE co.inventory_id = i.id
 	    ORDER BY co.Cotent_order;
-	$$;
+$$;
 
 
 ALTER FUNCTION base.get_contentorder_by_course(p_course_id integer) OWNER TO postgres;
@@ -245,11 +245,11 @@ CREATE FUNCTION base.get_courses_by_username(p_user_name character varying) RETU
         c.description,
         c.start_date,
         c.end_date
-    FROM base.courses c
+    FROM base.cours c
     JOIN base.coursgroup cg ON c.id = cg.course_id
     JOIN base.groups g ON g.id = cg.groupe_id
     JOIN base.studentgroup sg ON sg.group_id = g.id
-    JOIN base.students s ON s.id = sg.student_id
+    JOIN base.student s ON s.id = sg.student_id
     JOIN base.userrole ur ON ur.role_id = s.id
     JOIN base.users u ON u.id = ur.user_id
     WHERE u.user_name = p_user_name;
@@ -329,7 +329,7 @@ CREATE FUNCTION base.get_students_by_username(p_user_name character varying) RET
     LANGUAGE sql SECURITY DEFINER
     AS $$
     SELECT s.lastname, s.firstname, s.patronymic, g.name
-    FROM base.students s
+    FROM base.student s
     JOIN base.userrole ur ON s.id = ur.role_id
     JOIN base.users u ON ur.user_id = u.id
     JOIN base.studentgroup sg on sg.student_id = s.id 
@@ -347,11 +347,12 @@ ALTER FUNCTION base.get_students_by_username(p_user_name character varying) OWNE
 CREATE FUNCTION base.get_taskresult_by_task_and_user(p_task_id integer, p_user_name character varying) RETURNS TABLE(id integer, validation character varying, create_date timestamp without time zone, result text, answertext text)
     LANGUAGE sql SECURITY DEFINER
     AS $$
-    SELECT tr.id, tr.validation, tr.create_date, tr."result", tr.answertext
+    SELECT tr.id, v.validation, tr.create_date, tr."result", tr.answertext
     FROM base.taskresult tr
     JOIN base.users u ON u.user_name = p_user_name
-    JOIN base.tasknotification tn ON tn.user_id = u.id
-    WHERE tr.id = tn.taskresult_id and tr.task_id = p_task_id;
+    join base.usertaskanswer ua on ua.user_id = u.id 
+    join base.validation v on tr.validation_id = v.id
+    WHERE tr.id = ua.taskresult_id and tr.task_id = p_task_id;
 $$;
 
 
@@ -416,6 +417,7 @@ DECLARE
 v_taskresult_id_old INTEGER;
 v_taskresult_id_new INTEGER;
 v_user_id INTEGER;
+v_validation_id INTEGER;
 BEGIN
     Select u.id from base.users u 
     where u.user_name = p_username 
@@ -424,22 +426,26 @@ BEGIN
     DELETE FROM base.answerfile
     WHERE base.answerfile.taskresult_id = p_answer_id;
 
-    DELETE FROM base.tasknotification
-    WHERE base.tasknotification.user_id = v_user_id
-    AND base.tasknotification.taskresult_id = p_answer_id;
+    DELETE FROM base.usertaskanswer
+    WHERE base.usertaskanswer.user_id = v_user_id
+    AND base.usertaskanswer.taskresult_id = p_answer_id;
 
     DELETE FROM base.taskresult
     WHERE base.taskresult.id = p_answer_id;
     
-    INSERT INTO base.taskresult (task_id,create_date,answertext)
-    VALUES (p_task_id,NOW(),p_answertext)
+    INSERT INTO base.validation (user_id,change_date)
+    VALUES (v_user_id,NOW())
+    RETURNING base.validation.id INTO v_validation_id;
+
+    INSERT INTO base.taskresult (task_id,validation_id,create_date,answertext)
+    VALUES (p_task_id,v_validation_id,NOW(),p_answertext)
     RETURNING base.taskresult.id INTO v_taskresult_id_new;
 
     INSERT INTO base.answerfile (taskresult_id,file_id)
     VALUES (v_taskresult_id_new,p_file_id);   
 
-    INSERT INTO base.tasknotification (taskresult_id,user_id,type,relevance)
-    VALUES (v_taskresult_id_new,v_user_id,'answer','new');
+    INSERT INTO base.usertaskanswer (taskresult_id,user_id)
+    VALUES (v_taskresult_id_new,v_user_id);
 
     return true;
 END;
@@ -558,10 +564,10 @@ ALTER SEQUENCE base.contentorder_id_seq OWNED BY base.contentorder.id;
 
 
 --
--- Name: courses; Type: TABLE; Schema: base; Owner: postgres
+-- Name: cours; Type: TABLE; Schema: base; Owner: postgres
 --
 
-CREATE TABLE base.courses (
+CREATE TABLE base.cours (
     id integer NOT NULL,
     name character varying(255) NOT NULL,
     description text,
@@ -570,13 +576,13 @@ CREATE TABLE base.courses (
 );
 
 
-ALTER TABLE base.courses OWNER TO postgres;
+ALTER TABLE base.cours OWNER TO postgres;
 
 --
--- Name: courses_id_seq; Type: SEQUENCE; Schema: base; Owner: postgres
+-- Name: cours_id_seq; Type: SEQUENCE; Schema: base; Owner: postgres
 --
 
-CREATE SEQUENCE base.courses_id_seq
+CREATE SEQUENCE base.cours_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -585,26 +591,14 @@ CREATE SEQUENCE base.courses_id_seq
     CACHE 1;
 
 
-ALTER SEQUENCE base.courses_id_seq OWNER TO postgres;
+ALTER SEQUENCE base.cours_id_seq OWNER TO postgres;
 
 --
--- Name: courses_id_seq; Type: SEQUENCE OWNED BY; Schema: base; Owner: postgres
+-- Name: cours_id_seq; Type: SEQUENCE OWNED BY; Schema: base; Owner: postgres
 --
 
-ALTER SEQUENCE base.courses_id_seq OWNED BY base.courses.id;
+ALTER SEQUENCE base.cours_id_seq OWNED BY base.cours.id;
 
-
---
--- Name: coursesinventory; Type: TABLE; Schema: base; Owner: postgres
---
-
-CREATE TABLE base.coursesinventory (
-    courses_id integer,
-    inventory_id integer
-);
-
-
-ALTER TABLE base.coursesinventory OWNER TO postgres;
 
 --
 -- Name: coursgroup; Type: TABLE; Schema: base; Owner: postgres
@@ -617,6 +611,18 @@ CREATE TABLE base.coursgroup (
 
 
 ALTER TABLE base.coursgroup OWNER TO postgres;
+
+--
+-- Name: coursinventory; Type: TABLE; Schema: base; Owner: postgres
+--
+
+CREATE TABLE base.coursinventory (
+    cours_id integer,
+    inventory_id integer
+);
+
+
+ALTER TABLE base.coursinventory OWNER TO postgres;
 
 --
 -- Name: courstest; Type: TABLE; Schema: base; Owner: postgres
@@ -775,41 +781,6 @@ CREATE TABLE base.inventorytext (
 ALTER TABLE base.inventorytext OWNER TO postgres;
 
 --
--- Name: role; Type: TABLE; Schema: base; Owner: postgres
---
-
-CREATE TABLE base.role (
-    id integer NOT NULL,
-    role_name character varying(255) NOT NULL,
-    permission_oid character varying(255)
-);
-
-
-ALTER TABLE base.role OWNER TO postgres;
-
---
--- Name: role_id_seq; Type: SEQUENCE; Schema: base; Owner: postgres
---
-
-CREATE SEQUENCE base.role_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE base.role_id_seq OWNER TO postgres;
-
---
--- Name: role_id_seq; Type: SEQUENCE OWNED BY; Schema: base; Owner: postgres
---
-
-ALTER SEQUENCE base.role_id_seq OWNED BY base.role.id;
-
-
---
 -- Name: salt; Type: TABLE; Schema: base; Owner: postgres
 --
 
@@ -844,6 +815,44 @@ ALTER SEQUENCE base.salt_id_seq OWNED BY base.salt.id;
 
 
 --
+-- Name: student; Type: TABLE; Schema: base; Owner: postgres
+--
+
+CREATE TABLE base.student (
+    id integer NOT NULL,
+    lastname character varying(255) NOT NULL,
+    firstname character varying(255) NOT NULL,
+    patronymic character varying(255),
+    student_code character varying(255) NOT NULL,
+    role_id integer NOT NULL
+);
+
+
+ALTER TABLE base.student OWNER TO postgres;
+
+--
+-- Name: student_id_seq; Type: SEQUENCE; Schema: base; Owner: postgres
+--
+
+CREATE SEQUENCE base.student_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE base.student_id_seq OWNER TO postgres;
+
+--
+-- Name: student_id_seq; Type: SEQUENCE OWNED BY; Schema: base; Owner: postgres
+--
+
+ALTER SEQUENCE base.student_id_seq OWNED BY base.student.id;
+
+
+--
 -- Name: studentgroup; Type: TABLE; Schema: base; Owner: postgres
 --
 
@@ -854,44 +863,6 @@ CREATE TABLE base.studentgroup (
 
 
 ALTER TABLE base.studentgroup OWNER TO postgres;
-
---
--- Name: students; Type: TABLE; Schema: base; Owner: postgres
---
-
-CREATE TABLE base.students (
-    id integer NOT NULL,
-    lastname character varying(255) NOT NULL,
-    firstname character varying(255) NOT NULL,
-    patronymic character varying(255),
-    student_code character varying(255) NOT NULL,
-    role_id integer NOT NULL
-);
-
-
-ALTER TABLE base.students OWNER TO postgres;
-
---
--- Name: students_id_seq; Type: SEQUENCE; Schema: base; Owner: postgres
---
-
-CREATE SEQUENCE base.students_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE base.students_id_seq OWNER TO postgres;
-
---
--- Name: students_id_seq; Type: SEQUENCE OWNED BY; Schema: base; Owner: postgres
---
-
-ALTER SEQUENCE base.students_id_seq OWNED BY base.students.id;
-
 
 --
 -- Name: task; Type: TABLE; Schema: base; Owner: postgres
@@ -955,27 +926,13 @@ CREATE TABLE base.taskfile (
 ALTER TABLE base.taskfile OWNER TO postgres;
 
 --
--- Name: tasknotification; Type: TABLE; Schema: base; Owner: postgres
---
-
-CREATE TABLE base.tasknotification (
-    taskresult_id integer,
-    user_id integer,
-    type character varying(255) NOT NULL,
-    relevance character varying(255)
-);
-
-
-ALTER TABLE base.tasknotification OWNER TO postgres;
-
---
 -- Name: taskresult; Type: TABLE; Schema: base; Owner: postgres
 --
 
 CREATE TABLE base.taskresult (
     id integer NOT NULL,
     task_id integer NOT NULL,
-    validation character varying(255) DEFAULT 'verification'::character varying NOT NULL,
+    validation_id integer,
     create_date timestamp without time zone,
     result character varying(255),
     answertext text
@@ -1106,18 +1063,6 @@ ALTER SEQUENCE base.test_id_seq OWNED BY base.test.id;
 
 
 --
--- Name: testnotification; Type: TABLE; Schema: base; Owner: postgres
---
-
-CREATE TABLE base.testnotification (
-    testresult_id integer,
-    user_id integer
-);
-
-
-ALTER TABLE base.testnotification OWNER TO postgres;
-
---
 -- Name: testresult; Type: TABLE; Schema: base; Owner: postgres
 --
 
@@ -1235,6 +1180,41 @@ CREATE TABLE base.userrole (
 ALTER TABLE base.userrole OWNER TO postgres;
 
 --
+-- Name: userroletype; Type: TABLE; Schema: base; Owner: postgres
+--
+
+CREATE TABLE base.userroletype (
+    id integer NOT NULL,
+    role_name character varying(255) NOT NULL,
+    permission_oid character varying(255)
+);
+
+
+ALTER TABLE base.userroletype OWNER TO postgres;
+
+--
+-- Name: userroletype_id_seq; Type: SEQUENCE; Schema: base; Owner: postgres
+--
+
+CREATE SEQUENCE base.userroletype_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE base.userroletype_id_seq OWNER TO postgres;
+
+--
+-- Name: userroletype_id_seq; Type: SEQUENCE OWNED BY; Schema: base; Owner: postgres
+--
+
+ALTER SEQUENCE base.userroletype_id_seq OWNED BY base.userroletype.id;
+
+
+--
 -- Name: users; Type: TABLE; Schema: base; Owner: postgres
 --
 
@@ -1274,6 +1254,68 @@ ALTER SEQUENCE base.users_id_seq OWNED BY base.users.id;
 
 
 --
+-- Name: usertaskanswer; Type: TABLE; Schema: base; Owner: postgres
+--
+
+CREATE TABLE base.usertaskanswer (
+    taskresult_id integer,
+    user_id integer
+);
+
+
+ALTER TABLE base.usertaskanswer OWNER TO postgres;
+
+--
+-- Name: usertestanswer; Type: TABLE; Schema: base; Owner: postgres
+--
+
+CREATE TABLE base.usertestanswer (
+    testresult_id integer,
+    user_id integer,
+    type character varying(255),
+    relevance character varying(255)
+);
+
+
+ALTER TABLE base.usertestanswer OWNER TO postgres;
+
+--
+-- Name: validation; Type: TABLE; Schema: base; Owner: postgres
+--
+
+CREATE TABLE base.validation (
+    id integer NOT NULL,
+    validation character varying(255) DEFAULT 'verification'::character varying NOT NULL,
+    user_id integer,
+    change_date timestamp without time zone
+);
+
+
+ALTER TABLE base.validation OWNER TO postgres;
+
+--
+-- Name: validation_id_seq; Type: SEQUENCE; Schema: base; Owner: postgres
+--
+
+CREATE SEQUENCE base.validation_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE base.validation_id_seq OWNER TO postgres;
+
+--
+-- Name: validation_id_seq; Type: SEQUENCE OWNED BY; Schema: base; Owner: postgres
+--
+
+ALTER SEQUENCE base.validation_id_seq OWNED BY base.validation.id;
+
+
+--
 -- Name: comment id; Type: DEFAULT; Schema: base; Owner: postgres
 --
 
@@ -1288,10 +1330,10 @@ ALTER TABLE ONLY base.contentorder ALTER COLUMN id SET DEFAULT nextval('base.con
 
 
 --
--- Name: courses id; Type: DEFAULT; Schema: base; Owner: postgres
+-- Name: cours id; Type: DEFAULT; Schema: base; Owner: postgres
 --
 
-ALTER TABLE ONLY base.courses ALTER COLUMN id SET DEFAULT nextval('base.courses_id_seq'::regclass);
+ALTER TABLE ONLY base.cours ALTER COLUMN id SET DEFAULT nextval('base.cours_id_seq'::regclass);
 
 
 --
@@ -1316,13 +1358,6 @@ ALTER TABLE ONLY base.inventory ALTER COLUMN id SET DEFAULT nextval('base.invent
 
 
 --
--- Name: role id; Type: DEFAULT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.role ALTER COLUMN id SET DEFAULT nextval('base.role_id_seq'::regclass);
-
-
---
 -- Name: salt id; Type: DEFAULT; Schema: base; Owner: postgres
 --
 
@@ -1330,10 +1365,10 @@ ALTER TABLE ONLY base.salt ALTER COLUMN id SET DEFAULT nextval('base.salt_id_seq
 
 
 --
--- Name: students id; Type: DEFAULT; Schema: base; Owner: postgres
+-- Name: student id; Type: DEFAULT; Schema: base; Owner: postgres
 --
 
-ALTER TABLE ONLY base.students ALTER COLUMN id SET DEFAULT nextval('base.students_id_seq'::regclass);
+ALTER TABLE ONLY base.student ALTER COLUMN id SET DEFAULT nextval('base.student_id_seq'::regclass);
 
 
 --
@@ -1386,10 +1421,24 @@ ALTER TABLE ONLY base."time" ALTER COLUMN id SET DEFAULT nextval('base.time_id_s
 
 
 --
+-- Name: userroletype id; Type: DEFAULT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.userroletype ALTER COLUMN id SET DEFAULT nextval('base.userroletype_id_seq'::regclass);
+
+
+--
 -- Name: users id; Type: DEFAULT; Schema: base; Owner: postgres
 --
 
 ALTER TABLE ONLY base.users ALTER COLUMN id SET DEFAULT nextval('base.users_id_seq'::regclass);
+
+
+--
+-- Name: validation id; Type: DEFAULT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.validation ALTER COLUMN id SET DEFAULT nextval('base.validation_id_seq'::regclass);
 
 
 --
@@ -1430,24 +1479,13 @@ COPY base.contentorder (id, type, cotent_order, inventory_id) FROM stdin;
 
 
 --
--- Data for Name: courses; Type: TABLE DATA; Schema: base; Owner: postgres
+-- Data for Name: cours; Type: TABLE DATA; Schema: base; Owner: postgres
 --
 
-COPY base.courses (id, name, description, start_date, end_date) FROM stdin;
+COPY base.cours (id, name, description, start_date, end_date) FROM stdin;
 1	Курс1	Описание Курс1	2026-01-01	2026-05-25
 2	Курс2	Описание Курс2	2026-01-02	2026-05-26
 3	КурсОбщий	Описание КурсОбщий	2026-05-27	2026-05-10
-\.
-
-
---
--- Data for Name: coursesinventory; Type: TABLE DATA; Schema: base; Owner: postgres
---
-
-COPY base.coursesinventory (courses_id, inventory_id) FROM stdin;
-1	1
-2	2
-3	3
 \.
 
 
@@ -1460,6 +1498,17 @@ COPY base.coursgroup (course_id, groupe_id) FROM stdin;
 2	2
 3	1
 3	2
+\.
+
+
+--
+-- Data for Name: coursinventory; Type: TABLE DATA; Schema: base; Owner: postgres
+--
+
+COPY base.coursinventory (cours_id, inventory_id) FROM stdin;
+1	1
+2	2
+3	3
 \.
 
 
@@ -1542,17 +1591,6 @@ COPY base.inventorytext (inventory_id, textitem_id) FROM stdin;
 
 
 --
--- Data for Name: role; Type: TABLE DATA; Schema: base; Owner: postgres
---
-
-COPY base.role (id, role_name, permission_oid) FROM stdin;
-1	студент	0BLA-Yqh
-2	студент	0BLA-Yqt
-3	студент	0BLA-Yqe
-\.
-
-
---
 -- Data for Name: salt; Type: TABLE DATA; Schema: base; Owner: postgres
 --
 
@@ -1583,6 +1621,17 @@ COPY base.salt (id, salt) FROM stdin;
 
 
 --
+-- Data for Name: student; Type: TABLE DATA; Schema: base; Owner: postgres
+--
+
+COPY base.student (id, lastname, firstname, patronymic, student_code, role_id) FROM stdin;
+1	Иванов	Иван	Иванович	АБВГ-012345	1
+2	Иванов	Андрей	Иванович	АБВГ-012346	2
+3	Иванов	Сергей	Иванович	АБВГ-012347	3
+\.
+
+
+--
 -- Data for Name: studentgroup; Type: TABLE DATA; Schema: base; Owner: postgres
 --
 
@@ -1590,17 +1639,6 @@ COPY base.studentgroup (student_id, group_id) FROM stdin;
 1	1
 2	2
 3	2
-\.
-
-
---
--- Data for Name: students; Type: TABLE DATA; Schema: base; Owner: postgres
---
-
-COPY base.students (id, lastname, firstname, patronymic, student_code, role_id) FROM stdin;
-1	Иванов	Иван	Иванович	АБВГ-012345	1
-2	Иванов	Андрей	Иванович	АБВГ-012346	2
-3	Иванов	Сергей	Иванович	АБВГ-012347	3
 \.
 
 
@@ -1634,24 +1672,13 @@ COPY base.taskfile (task_id, file_id) FROM stdin;
 
 
 --
--- Data for Name: tasknotification; Type: TABLE DATA; Schema: base; Owner: postgres
---
-
-COPY base.tasknotification (taskresult_id, user_id, type, relevance) FROM stdin;
-11	48	answer	new
-12	49	answer	new
-13	48	answer	new
-\.
-
-
---
 -- Data for Name: taskresult; Type: TABLE DATA; Schema: base; Owner: postgres
 --
 
-COPY base.taskresult (id, task_id, validation, create_date, result, answertext) FROM stdin;
-11	1	verification	2026-03-26 16:29:05.710889	\N	ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ\nЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,\nйцукенгшщзхъфывапролджэячсмитьбю.\nQWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?\nqwertyuiop[]asdfghjkl;'zxcvbnm,./\n1234567890-=!@#$%^&*()_+~`
-12	3	verification	2026-03-26 17:00:15.100727	\N	ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ\nЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,\nйцукенгшщзхъфывапролджэячсмитьбю.\nQWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?\nqwertyuiop[]asdfghjkl;'zxcvbnm,./\n1234567890-=!@#$%^&*()_+~`
-13	3	verification	2026-03-26 17:01:26.23245	\N	ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ\nЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,\nйцукенгшщзхъфывапролджэячсмитьбю.\nQWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?\nqwertyuiop[]asdfghjkl;'zxcvbnm,./\n1234567890-=!@#$%^&*()_+~`
+COPY base.taskresult (id, task_id, validation_id, create_date, result, answertext) FROM stdin;
+11	1	1	2026-03-26 16:29:05.71		ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ
+12	3	2	2026-03-26 17:00:15.1		ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ
+13	3	3	2026-03-26 17:01:26.232		ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ
 \.
 
 
@@ -1684,14 +1711,6 @@ COPY base.teachergroup (student_id, group_id) FROM stdin;
 --
 
 COPY base.test (id, test_result_id, time_id, description, attempts_count) FROM stdin;
-\.
-
-
---
--- Data for Name: testnotification; Type: TABLE DATA; Schema: base; Owner: postgres
---
-
-COPY base.testnotification (testresult_id, user_id) FROM stdin;
 \.
 
 
@@ -1735,27 +1754,68 @@ COPY base.userrole (user_id, role_id) FROM stdin;
 
 
 --
+-- Data for Name: userroletype; Type: TABLE DATA; Schema: base; Owner: postgres
+--
+
+COPY base.userroletype (id, role_name, permission_oid) FROM stdin;
+2	студент	0BLA-Yqt
+3	студент	0BLA-Yqe
+1	student	0BLA-Yqh
+\.
+
+
+--
 -- Data for Name: users; Type: TABLE DATA; Schema: base; Owner: postgres
 --
 
 COPY base.users (id, user_name, password_hash, email, is_active, create_at, salt_id) FROM stdin;
-1	john_doe	520feeb8898dad775fa6e6fe8d03824fbfa27a3d6d759b61ab6873ddc0dc5108	john@example.com	t	2026-03-10 19:30:41.57366	1
-4	john_doe2	0ac49be484e36fb89558af5e84f12981f23e69da2528b458380283bdf9d10c7c	john2@example.com	t	2026-03-10 19:41:22.263461	4
-6	john_doe3	530b3351ebced3a7f39c13270fe2705e60b8f7fc0d71de314e3dd572169f4876	john3@example.com	t	2026-03-10 19:50:54.084712	6
-7	john_doe4	b5a80c883bd9605c9f2c91a6638ca0b5b8543e2ce1964e5237662984d2c64457	john4@example.com	t	2026-03-10 19:52:14.832344	7
-8	qwe	feb00bddfade771c0bc54be021c411d68026bad6f726ebbd25cdeda4b85d4d9b	asd	t	2026-03-10 20:21:39.302999	8
-14	alice	64e46e292d6dcc75ceb86f85f81e24641e0270cc23e764945f00a96c3f4ab573	alice@example.com	t	2026-03-10 17:45:51.008008	14
-15	alice2	1250d7c38bd70cc8f72ecac1522c00fac65feb5599e5a1228cf1652ca4063d51	alice2@example.com	t	2026-03-10 17:46:12.109449	15
-16	alice3	466033cf0e644844b6e1f1ba560e45e3c5abe77a650c35a6ed0ed028629ce80d	alice3@example.com	t	2026-03-10 17:55:42.626215	16
-21	alice4	51593e9a1ba3fdfd72caf4909e769e5c5c7e581041bebe6d339f1638467a9fa9	alice4@example.com	t	2026-03-10 18:21:22.726593	21
-25	test	a8f90766339d02ee501143a4fb5d578e5b2730835adcf88174d5170950fefb00	test@yandex.ru	t	2026-03-10 20:02:04.069939	25
-32	test2	0025b5d01641eb5a135ddfdd8d03fb75154da5bc2c458b8817e61389dae4dcb5	tes2t@yandex.ru	t	2026-03-10 20:04:10.890515	32
-33	test3	a16c7942d98c1486d35cd290ae999262d29a5a92b743b6ba16ca718f79db8808	test3@test.test	t	2026-03-10 20:07:22.706856	33
-39	john_doe5	8d6617d1ad9589ed09e207745e4f9675c02362abf2f39aa2973804eff1d8f84f	john5@example.com	t	2026-03-11 12:16:09.180507	39
-44	qwe2	ddae3ad6d9f6c392f39384b41e637c4873dd8f26a7e7dfb91b97ad87a6752b2e	asd2	t	2026-03-11 12:23:48.419013	44
-45	qwe3	263c2ef0980c7248a68ba360d0950d7f77b4979653dbbca01a30628389a049c1	asd3	t	2026-03-11 12:24:35.377824	45
-48	test5	bc2701ae59b1b1e377b01913519bb31e88bdd75451643e1beb0e970aeba873e2	test5@test.test	t	2026-03-11 09:38:57.540497	48
-49	test6	1cf9df01b9dabdacd419a7ff5827c475d6f2d2bfa2c4b2986f1721bb1add53b3	test6@test.test	t	2026-03-11 11:03:44.151694	49
+1	john_doe	520feeb8898dad775fa6e6fe8d03824fbfa27a3d6d759b61ab6873ddc0dc5108	john@example.com	t	2026-03-10 19:30:41.573	1
+4	john_doe2	0ac49be484e36fb89558af5e84f12981f23e69da2528b458380283bdf9d10c7c	john2@example.com	t	2026-03-10 19:41:22.263	4
+6	john_doe3	530b3351ebced3a7f39c13270fe2705e60b8f7fc0d71de314e3dd572169f4876	john3@example.com	t	2026-03-10 19:50:54.084	6
+7	john_doe4	b5a80c883bd9605c9f2c91a6638ca0b5b8543e2ce1964e5237662984d2c64457	john4@example.com	t	2026-03-10 19:52:14.832	7
+8	qwe	feb00bddfade771c0bc54be021c411d68026bad6f726ebbd25cdeda4b85d4d9b	asd	t	2026-03-10 20:21:39.302	8
+14	alice	64e46e292d6dcc75ceb86f85f81e24641e0270cc23e764945f00a96c3f4ab573	alice@example.com	t	2026-03-10 17:45:51.008	14
+15	alice2	1250d7c38bd70cc8f72ecac1522c00fac65feb5599e5a1228cf1652ca4063d51	alice2@example.com	t	2026-03-10 17:46:12.109	15
+16	alice3	466033cf0e644844b6e1f1ba560e45e3c5abe77a650c35a6ed0ed028629ce80d	alice3@example.com	t	2026-03-10 17:55:42.626	16
+21	alice4	51593e9a1ba3fdfd72caf4909e769e5c5c7e581041bebe6d339f1638467a9fa9	alice4@example.com	t	2026-03-10 18:21:22.726	21
+25	test	a8f90766339d02ee501143a4fb5d578e5b2730835adcf88174d5170950fefb00	test@yandex.ru	t	2026-03-10 20:02:04.069	25
+32	test2	0025b5d01641eb5a135ddfdd8d03fb75154da5bc2c458b8817e61389dae4dcb5	tes2t@yandex.ru	t	2026-03-10 20:04:10.89	32
+33	test3	a16c7942d98c1486d35cd290ae999262d29a5a92b743b6ba16ca718f79db8808	test3@test.test	t	2026-03-10 20:07:22.706	33
+39	john_doe5	8d6617d1ad9589ed09e207745e4f9675c02362abf2f39aa2973804eff1d8f84f	john5@example.com	t	2026-03-11 12:16:09.18	39
+44	qwe2	ddae3ad6d9f6c392f39384b41e637c4873dd8f26a7e7dfb91b97ad87a6752b2e	asd2	t	2026-03-11 12:23:48.419	44
+45	qwe3	263c2ef0980c7248a68ba360d0950d7f77b4979653dbbca01a30628389a049c1	asd3	t	2026-03-11 12:24:35.377	45
+48	test5	bc2701ae59b1b1e377b01913519bb31e88bdd75451643e1beb0e970aeba873e2	test5@test.test	t	2026-03-11 09:38:57.54	48
+49	test6	1cf9df01b9dabdacd419a7ff5827c475d6f2d2bfa2c4b2986f1721bb1add53b3	test6@test.test	t	2026-03-11 11:03:44.151	49
+\.
+
+
+--
+-- Data for Name: usertaskanswer; Type: TABLE DATA; Schema: base; Owner: postgres
+--
+
+COPY base.usertaskanswer (taskresult_id, user_id) FROM stdin;
+11	48
+12	49
+13	48
+\.
+
+
+--
+-- Data for Name: usertestanswer; Type: TABLE DATA; Schema: base; Owner: postgres
+--
+
+COPY base.usertestanswer (testresult_id, user_id, type, relevance) FROM stdin;
+\.
+
+
+--
+-- Data for Name: validation; Type: TABLE DATA; Schema: base; Owner: postgres
+--
+
+COPY base.validation (id, validation, user_id, change_date) FROM stdin;
+1	verification	1	2026-04-01 00:00:00
+2	verification	1	2026-04-01 00:00:00
+3	verification	1	2026-04-01 00:00:00
 \.
 
 
@@ -1770,70 +1830,63 @@ SELECT pg_catalog.setval('base.comment_id_seq', 1, false);
 -- Name: contentorder_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.contentorder_id_seq', 10, true);
+SELECT pg_catalog.setval('base.contentorder_id_seq', 1, false);
 
 
 --
--- Name: courses_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
+-- Name: cours_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.courses_id_seq', 3, true);
+SELECT pg_catalog.setval('base.cours_id_seq', 1, false);
 
 
 --
 -- Name: file_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.file_id_seq', 14, true);
+SELECT pg_catalog.setval('base.file_id_seq', 1, false);
 
 
 --
 -- Name: groups_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.groups_id_seq', 2, true);
+SELECT pg_catalog.setval('base.groups_id_seq', 1, false);
 
 
 --
 -- Name: inventory_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.inventory_id_seq', 3, true);
-
-
---
--- Name: role_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
---
-
-SELECT pg_catalog.setval('base.role_id_seq', 3, true);
+SELECT pg_catalog.setval('base.inventory_id_seq', 1, false);
 
 
 --
 -- Name: salt_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.salt_id_seq', 52, true);
+SELECT pg_catalog.setval('base.salt_id_seq', 1, false);
 
 
 --
--- Name: students_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
+-- Name: student_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.students_id_seq', 3, true);
+SELECT pg_catalog.setval('base.student_id_seq', 1, false);
 
 
 --
 -- Name: task_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.task_id_seq', 4, true);
+SELECT pg_catalog.setval('base.task_id_seq', 1, false);
 
 
 --
 -- Name: taskresult_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.taskresult_id_seq', 13, true);
+SELECT pg_catalog.setval('base.taskresult_id_seq', 1, true);
 
 
 --
@@ -1861,21 +1914,35 @@ SELECT pg_catalog.setval('base.testresult_id_seq', 1, false);
 -- Name: textitem_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.textitem_id_seq', 5, true);
+SELECT pg_catalog.setval('base.textitem_id_seq', 1, false);
 
 
 --
 -- Name: time_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.time_id_seq', 1, true);
+SELECT pg_catalog.setval('base.time_id_seq', 1, false);
+
+
+--
+-- Name: userroletype_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
+--
+
+SELECT pg_catalog.setval('base.userroletype_id_seq', 1, false);
 
 
 --
 -- Name: users_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.users_id_seq', 52, true);
+SELECT pg_catalog.setval('base.users_id_seq', 1, false);
+
+
+--
+-- Name: validation_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
+--
+
+SELECT pg_catalog.setval('base.validation_id_seq', 3, true);
 
 
 --
@@ -1895,11 +1962,11 @@ ALTER TABLE ONLY base.contentorder
 
 
 --
--- Name: courses courses_pkey; Type: CONSTRAINT; Schema: base; Owner: postgres
+-- Name: cours cours_pkey; Type: CONSTRAINT; Schema: base; Owner: postgres
 --
 
-ALTER TABLE ONLY base.courses
-    ADD CONSTRAINT courses_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY base.cours
+    ADD CONSTRAINT cours_pkey PRIMARY KEY (id);
 
 
 --
@@ -1927,14 +1994,6 @@ ALTER TABLE ONLY base.inventory
 
 
 --
--- Name: role role_pkey; Type: CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.role
-    ADD CONSTRAINT role_pkey PRIMARY KEY (id);
-
-
---
 -- Name: salt salt_pkey; Type: CONSTRAINT; Schema: base; Owner: postgres
 --
 
@@ -1943,11 +2002,19 @@ ALTER TABLE ONLY base.salt
 
 
 --
--- Name: students students_pkey; Type: CONSTRAINT; Schema: base; Owner: postgres
+-- Name: student student_pkey; Type: CONSTRAINT; Schema: base; Owner: postgres
 --
 
-ALTER TABLE ONLY base.students
-    ADD CONSTRAINT students_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY base.student
+    ADD CONSTRAINT student_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: student student_student_code_key; Type: CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.student
+    ADD CONSTRAINT student_student_code_key UNIQUE (student_code);
 
 
 --
@@ -2007,6 +2074,30 @@ ALTER TABLE ONLY base."time"
 
 
 --
+-- Name: userrole userrole_role_id_key; Type: CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.userrole
+    ADD CONSTRAINT userrole_role_id_key UNIQUE (role_id);
+
+
+--
+-- Name: userroletype userroletype_permission_oid_key; Type: CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.userroletype
+    ADD CONSTRAINT userroletype_permission_oid_key UNIQUE (permission_oid);
+
+
+--
+-- Name: userroletype userroletype_pkey; Type: CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.userroletype
+    ADD CONSTRAINT userroletype_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: users users_email_key; Type: CONSTRAINT; Schema: base; Owner: postgres
 --
 
@@ -2031,6 +2122,30 @@ ALTER TABLE ONLY base.users
 
 
 --
+-- Name: validation validation_pkey; Type: CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.validation
+    ADD CONSTRAINT validation_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: answerfile answerfile_file_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.answerfile
+    ADD CONSTRAINT answerfile_file_id_fkey FOREIGN KEY (file_id) REFERENCES base.file(id);
+
+
+--
+-- Name: answerfile answerfile_taskresult_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.answerfile
+    ADD CONSTRAINT answerfile_taskresult_id_fkey FOREIGN KEY (taskresult_id) REFERENCES base.taskresult(id);
+
+
+--
 -- Name: comment comment_user_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
@@ -2047,27 +2162,11 @@ ALTER TABLE ONLY base.contentorder
 
 
 --
--- Name: coursesinventory coursesinventory_courses_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.coursesinventory
-    ADD CONSTRAINT coursesinventory_courses_id_fkey FOREIGN KEY (courses_id) REFERENCES base.courses(id);
-
-
---
--- Name: coursesinventory coursesinventory_inventory_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.coursesinventory
-    ADD CONSTRAINT coursesinventory_inventory_id_fkey FOREIGN KEY (inventory_id) REFERENCES base.inventory(id);
-
-
---
 -- Name: coursgroup coursgroup_course_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
 ALTER TABLE ONLY base.coursgroup
-    ADD CONSTRAINT coursgroup_course_id_fkey FOREIGN KEY (course_id) REFERENCES base.courses(id);
+    ADD CONSTRAINT coursgroup_course_id_fkey FOREIGN KEY (course_id) REFERENCES base.cours(id);
 
 
 --
@@ -2079,19 +2178,19 @@ ALTER TABLE ONLY base.coursgroup
 
 
 --
--- Name: inventorytask courstask_inventory_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+-- Name: coursinventory coursinventory_cours_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
-ALTER TABLE ONLY base.inventorytask
-    ADD CONSTRAINT courstask_inventory_id_fkey FOREIGN KEY (inventory_id) REFERENCES base.inventory(id);
+ALTER TABLE ONLY base.coursinventory
+    ADD CONSTRAINT coursinventory_cours_id_fkey FOREIGN KEY (cours_id) REFERENCES base.cours(id);
 
 
 --
--- Name: inventorytask courstask_tasklist_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+-- Name: coursinventory coursinventory_inventory_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
-ALTER TABLE ONLY base.inventorytask
-    ADD CONSTRAINT courstask_tasklist_id_fkey FOREIGN KEY (tasklist_id) REFERENCES base.task(id);
+ALTER TABLE ONLY base.coursinventory
+    ADD CONSTRAINT coursinventory_inventory_id_fkey FOREIGN KEY (inventory_id) REFERENCES base.inventory(id);
 
 
 --
@@ -2127,6 +2226,22 @@ ALTER TABLE ONLY base.inventoryfile
 
 
 --
+-- Name: inventorytask inventorytask_inventory_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.inventorytask
+    ADD CONSTRAINT inventorytask_inventory_id_fkey FOREIGN KEY (inventory_id) REFERENCES base.inventory(id);
+
+
+--
+-- Name: inventorytask inventorytask_tasklist_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.inventorytask
+    ADD CONSTRAINT inventorytask_tasklist_id_fkey FOREIGN KEY (tasklist_id) REFERENCES base.task(id);
+
+
+--
 -- Name: inventorytext inventorytext_inventory_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
@@ -2143,6 +2258,14 @@ ALTER TABLE ONLY base.inventorytext
 
 
 --
+-- Name: student student_role_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.student
+    ADD CONSTRAINT student_role_id_fkey FOREIGN KEY (role_id) REFERENCES base.userroletype(id);
+
+
+--
 -- Name: studentgroup studentgroup_group_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
@@ -2155,15 +2278,7 @@ ALTER TABLE ONLY base.studentgroup
 --
 
 ALTER TABLE ONLY base.studentgroup
-    ADD CONSTRAINT studentgroup_student_id_fkey FOREIGN KEY (student_id) REFERENCES base.students(id);
-
-
---
--- Name: students students_role_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.students
-    ADD CONSTRAINT students_role_id_fkey FOREIGN KEY (role_id) REFERENCES base.role(id);
+    ADD CONSTRAINT studentgroup_student_id_fkey FOREIGN KEY (student_id) REFERENCES base.student(id);
 
 
 --
@@ -2191,19 +2306,11 @@ ALTER TABLE ONLY base.taskcomment
 
 
 --
--- Name: answerfile taskfile_file_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.answerfile
-    ADD CONSTRAINT taskfile_file_id_fkey FOREIGN KEY (file_id) REFERENCES base.file(id);
-
-
---
--- Name: taskfile taskfile_file_id_fkey1; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+-- Name: taskfile taskfile_file_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
 ALTER TABLE ONLY base.taskfile
-    ADD CONSTRAINT taskfile_file_id_fkey1 FOREIGN KEY (file_id) REFERENCES base.file(id);
+    ADD CONSTRAINT taskfile_file_id_fkey FOREIGN KEY (file_id) REFERENCES base.file(id);
 
 
 --
@@ -2215,30 +2322,6 @@ ALTER TABLE ONLY base.taskfile
 
 
 --
--- Name: answerfile taskfile_taskresult_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.answerfile
-    ADD CONSTRAINT taskfile_taskresult_id_fkey FOREIGN KEY (taskresult_id) REFERENCES base.taskresult(id);
-
-
---
--- Name: tasknotification tasknotification_taskresult_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.tasknotification
-    ADD CONSTRAINT tasknotification_taskresult_id_fkey FOREIGN KEY (taskresult_id) REFERENCES base.taskresult(id);
-
-
---
--- Name: tasknotification tasknotification_user_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.tasknotification
-    ADD CONSTRAINT tasknotification_user_id_fkey FOREIGN KEY (user_id) REFERENCES base.users(id);
-
-
---
 -- Name: taskresult taskresult_task_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
@@ -2247,11 +2330,19 @@ ALTER TABLE ONLY base.taskresult
 
 
 --
+-- Name: taskresult taskresult_validation_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.taskresult
+    ADD CONSTRAINT taskresult_validation_id_fkey FOREIGN KEY (validation_id) REFERENCES base.validation(id);
+
+
+--
 -- Name: teacher teacher_role_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
 ALTER TABLE ONLY base.teacher
-    ADD CONSTRAINT teacher_role_id_fkey FOREIGN KEY (role_id) REFERENCES base.role(id);
+    ADD CONSTRAINT teacher_role_id_fkey FOREIGN KEY (role_id) REFERENCES base.userroletype(id);
 
 
 --
@@ -2259,7 +2350,7 @@ ALTER TABLE ONLY base.teacher
 --
 
 ALTER TABLE ONLY base.teachercours
-    ADD CONSTRAINT teachercours_course_id_fkey FOREIGN KEY (course_id) REFERENCES base.courses(id);
+    ADD CONSTRAINT teachercours_course_id_fkey FOREIGN KEY (course_id) REFERENCES base.cours(id);
 
 
 --
@@ -2303,27 +2394,11 @@ ALTER TABLE ONLY base.test
 
 
 --
--- Name: testnotification testnotification_testresult_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.testnotification
-    ADD CONSTRAINT testnotification_testresult_id_fkey FOREIGN KEY (testresult_id) REFERENCES base.testresult(id);
-
-
---
--- Name: testnotification testnotification_user_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.testnotification
-    ADD CONSTRAINT testnotification_user_id_fkey FOREIGN KEY (user_id) REFERENCES base.users(id);
-
-
---
 -- Name: userrole userrole_role_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
 ALTER TABLE ONLY base.userrole
-    ADD CONSTRAINT userrole_role_id_fkey FOREIGN KEY (role_id) REFERENCES base.role(id);
+    ADD CONSTRAINT userrole_role_id_fkey FOREIGN KEY (role_id) REFERENCES base.userroletype(id);
 
 
 --
@@ -2340,6 +2415,46 @@ ALTER TABLE ONLY base.userrole
 
 ALTER TABLE ONLY base.users
     ADD CONSTRAINT users_salt_id_fkey FOREIGN KEY (salt_id) REFERENCES base.salt(id);
+
+
+--
+-- Name: usertaskanswer usertaskanswer_taskresult_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.usertaskanswer
+    ADD CONSTRAINT usertaskanswer_taskresult_id_fkey FOREIGN KEY (taskresult_id) REFERENCES base.taskresult(id);
+
+
+--
+-- Name: usertaskanswer usertaskanswer_user_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.usertaskanswer
+    ADD CONSTRAINT usertaskanswer_user_id_fkey FOREIGN KEY (user_id) REFERENCES base.users(id);
+
+
+--
+-- Name: usertestanswer usertestanswer_testresult_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.usertestanswer
+    ADD CONSTRAINT usertestanswer_testresult_id_fkey FOREIGN KEY (testresult_id) REFERENCES base.testresult(id);
+
+
+--
+-- Name: usertestanswer usertestanswer_user_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.usertestanswer
+    ADD CONSTRAINT usertestanswer_user_id_fkey FOREIGN KEY (user_id) REFERENCES base.users(id);
+
+
+--
+-- Name: validation validation_user_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.validation
+    ADD CONSTRAINT validation_user_id_fkey FOREIGN KEY (user_id) REFERENCES base.users(id);
 
 
 --
@@ -2479,6 +2594,20 @@ GRANT ALL ON FUNCTION base.upload_file(p_file_name character varying, p_path cha
 
 
 --
+-- Name: TABLE answerfile; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.answerfile TO admin;
+
+
+--
+-- Name: TABLE comment; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.comment TO admin;
+
+
+--
 -- Name: TABLE contentorder; Type: ACL; Schema: base; Owner: postgres
 --
 
@@ -2486,38 +2615,108 @@ GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.co
 
 
 --
--- Name: TABLE courses; Type: ACL; Schema: base; Owner: postgres
+-- Name: TABLE cours; Type: ACL; Schema: base; Owner: postgres
 --
 
-GRANT SELECT ON TABLE base.courses TO "studentUser";
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.cours TO admin;
 
 
 --
 -- Name: TABLE coursgroup; Type: ACL; Schema: base; Owner: postgres
 --
 
-GRANT SELECT ON TABLE base.coursgroup TO "studentUser";
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.coursgroup TO admin;
+
+
+--
+-- Name: TABLE coursinventory; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.coursinventory TO admin;
+
+
+--
+-- Name: TABLE courstest; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.courstest TO admin;
+
+
+--
+-- Name: TABLE file; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.file TO admin;
 
 
 --
 -- Name: TABLE groups; Type: ACL; Schema: base; Owner: postgres
 --
 
-GRANT SELECT ON TABLE base.groups TO "studentUser";
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.groups TO admin;
+
+
+--
+-- Name: TABLE inventory; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.inventory TO admin;
+
+
+--
+-- Name: TABLE inventoryfile; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.inventoryfile TO admin;
+
+
+--
+-- Name: TABLE inventorytask; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.inventorytask TO admin;
+
+
+--
+-- Name: TABLE inventorytext; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.inventorytext TO admin;
+
+
+--
+-- Name: TABLE salt; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.salt TO admin;
+
+
+--
+-- Name: TABLE student; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.student TO admin;
 
 
 --
 -- Name: TABLE studentgroup; Type: ACL; Schema: base; Owner: postgres
 --
 
-GRANT SELECT ON TABLE base.studentgroup TO "studentUser";
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.studentgroup TO admin;
 
 
 --
--- Name: TABLE students; Type: ACL; Schema: base; Owner: postgres
+-- Name: TABLE task; Type: ACL; Schema: base; Owner: postgres
 --
 
-GRANT SELECT ON TABLE base.students TO "studentUser";
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.task TO admin;
+
+
+--
+-- Name: TABLE taskcomment; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.taskcomment TO admin;
 
 
 --
@@ -2528,10 +2727,101 @@ GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.ta
 
 
 --
+-- Name: TABLE taskresult; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.taskresult TO admin;
+
+
+--
+-- Name: TABLE teacher; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.teacher TO admin;
+
+
+--
+-- Name: TABLE teachercours; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.teachercours TO admin;
+
+
+--
+-- Name: TABLE teachergroup; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.teachergroup TO admin;
+
+
+--
+-- Name: TABLE test; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.test TO admin;
+
+
+--
+-- Name: TABLE testresult; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.testresult TO admin;
+
+
+--
+-- Name: TABLE textitem; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.textitem TO admin;
+
+
+--
+-- Name: TABLE "time"; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base."time" TO admin;
+
+
+--
+-- Name: TABLE userrole; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.userrole TO admin;
+
+
+--
+-- Name: TABLE userroletype; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.userroletype TO admin;
+
+
+--
 -- Name: TABLE users; Type: ACL; Schema: base; Owner: postgres
 --
 
-GRANT SELECT ON TABLE base.users TO "publicUser";
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.users TO admin;
+
+
+--
+-- Name: TABLE usertaskanswer; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.usertaskanswer TO admin;
+
+
+--
+-- Name: TABLE usertestanswer; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.usertestanswer TO admin;
+
+
+--
+-- Name: TABLE validation; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.validation TO admin;
 
 
 --
