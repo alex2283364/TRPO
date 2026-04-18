@@ -34,8 +34,9 @@ pub struct BindRoleRequest {
 pub struct LoginResponse {
     pub authenticated: bool,
     pub role_bound: bool,
+    pub role_type: Option<String>,   // новое поле – тип роли (если есть)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>, // если используете JWT
+    pub token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,4 +128,10 @@ pub struct SetAnswerRequest {
     pub task_id: i32,
     pub answertext: String,
     pub file_id: i32,
+}
+
+/// Структура для извлечения параметра username из строки запроса.
+#[derive(Debug, Deserialize)]
+pub struct UsernameQuery {
+    pub username: String,
 }

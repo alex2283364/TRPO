@@ -8,11 +8,49 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+
+// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С URL ===
+function updateUrlAndState(newUrl) {
+    const current = window.location.pathname + window.location.search;
+    if (current !== newUrl) {
+        history.pushState(null, '', newUrl);
+    }
+}
+
+function restoreStateFromURL() {
+    const path = window.location.pathname;
+    const search = window.location.search;
+
+    if (path === '/' || (path === '' && !search)) {
+        loadCourses();
+    } else if (path === '/profile') {
+        loadUserInfo();
+    } else if (path === '/course') {
+        const params = new URLSearchParams(search);
+        let paramStr = '';
+        for (let [key, value] of params.entries()) {
+            paramStr += `&${key}=${encodeURIComponent(value)}`;
+        }
+        if (paramStr) paramStr = paramStr.substring(1); // убираем первый '&'
+        loadTargetCourse(paramStr);
+    } else if (path === '/task') {
+        const params = new URLSearchParams(search);
+        let paramStr = '';
+        for (let [key, value] of params.entries()) {
+            paramStr += `&${key}=${encodeURIComponent(value)}`;
+        }
+        if (paramStr) paramStr = paramStr.substring(1);
+        loadTargetTask(paramStr);
+    } else {
+        // fallback – главная страница
+        loadCourses();
+    }
+}
+
 // === ГЛОБАЛЬНЫЕ ФУНКЦИИ (доступны из HTML) ===
 
 window.loadCourses = function () {
     const username = localStorage.getItem('username');
-
     const mainContainer = document.querySelector('.main-content');
     if (!mainContainer) return;
 
@@ -20,7 +58,6 @@ window.loadCourses = function () {
 
     const navContainer = document.querySelector('.nav-list');
     const coursesContainer = document.querySelector('.course-list');
-
     if (!navContainer || !coursesContainer) return;
 
     fetch('/courses', {
@@ -31,14 +68,15 @@ window.loadCourses = function () {
         .then(res => res.json())
         .then((courses) => {
             // Обновляем навигацию
-            navContainer.innerHTML = '<li><a href="" id="back-to-main">► В начало</a></li>';
+            navContainer.innerHTML = '<li><a href="#" id="back-to-main">► В начало</a></li>';
             courses.forEach(course => {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
                 a.textContent = course.name;
                 a.className = "targetcourse";
                 a.id = "targetcourse";
-                a.href = `&id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
+                // Формируем корректный URL с параметрами
+                a.href = `?id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
                 li.appendChild(a);
                 navContainer.appendChild(li);
             });
@@ -48,17 +86,17 @@ window.loadCourses = function () {
             courses.forEach(course => {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
-                li.id="coursesContainer";
+                li.id = "coursesContainer";
                 a.textContent = course.name;
                 a.className = "targetcourse";
                 a.id = "targetcourse";
-                a.href = `&id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
+                a.href = `?id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
                 li.appendChild(a);
                 coursesContainer.appendChild(li);
                 li.innerHTML += `
-                <p>${course.description}</p>
-                <p>Начало: ${course.start_date}</p>
-                <p>Окончание: ${course.end_date}</p>`
+                    <p>${course.description}</p>
+                    <p>Начало: ${course.start_date}</p>
+                    <p>Окончание: ${course.end_date}</p>`;
             });
 
             // Перепривязываем обработчик для кнопки "В начало"
@@ -66,13 +104,16 @@ window.loadCourses = function () {
             if (backBtn) {
                 backBtn.onclick = (e) => { e.preventDefault(); loadCourses(); };
             }
+
+            // Обновляем URL
+            updateUrlAndState('/');
         })
         .catch(err => {
             console.error('Ошибка загрузки курсов:', err);
             if (navContainer) navContainer.innerHTML = '<li>Ошибка загрузки</li>';
             if (coursesContainer) coursesContainer.innerHTML = '<li>Ошибка загрузки</li>';
         });
-}
+};
 
 window.loadUserInfo = function () {
     const username = localStorage.getItem('username');
@@ -99,18 +140,17 @@ window.loadUserInfo = function () {
             else if (res.status === 404) throw new Error('not_found');
             else throw new Error('server_error');
         })
-        //Переделать
         .then(data => {
             mainContainer.innerHTML = `
-            <h2 class = "user-info-title">Информация о пользователе</h2>
-            <div id="user-courses">
-            <div class="info-row"><div class="label">Фамилия: ${data.lastname}</div></div>
-            <div class="info-row"><div class="label">Имя: ${data.firstname}</div></div>
-            <div class="info-row"><div class="label">Отчество: ${data.patronymic}</div></div>
-            <div class="info-row"><div class="label">Группа: ${data.groupp}</div></div>
-            </div>
-        `;
-
+                <h2 class="user-info-title">Информация о пользователе</h2>
+                <div id="user-courses">
+                    <div class="info-row"><div class="label">Фамилия: ${data.lastname}</div></div>
+                    <div class="info-row"><div class="label">Имя: ${data.firstname}</div></div>
+                    <div class="info-row"><div class="label">Отчество: ${data.patronymic}</div></div>
+                    <div class="info-row"><div class="label">Группа: ${data.groupp}</div></div>
+                </div>
+            `;
+            updateUrlAndState('/profile');
         })
         .catch(err => {
             console.error('Ошибка:', err);
@@ -121,7 +161,7 @@ window.loadUserInfo = function () {
                 mainContainer.innerHTML = '<div class="error">Ошибка загрузки данных</div>';
             }
         });
-}
+};
 
 function loadUserCourses() {
     const username = localStorage.getItem('username');
@@ -147,7 +187,7 @@ function loadUserCourses() {
                 const link = document.createElement('a');
                 link.textContent = course.name;
                 link.id = "targetcourse";
-                link.href = `id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
+                link.href = `?id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
                 item.appendChild(link);
                 list.appendChild(item);
             });
@@ -158,13 +198,12 @@ function loadUserCourses() {
 }
 
 window.loadTargetCourse = function (coursedata) {
-    console.log(coursedata);
-    const params = new URLSearchParams(coursedata);
-    const allParams = {};
-    for (const [key, value] of params.entries()) {
-        allParams[key] = decodeURIComponent(value);
+    // Нормализуем строку параметров (может начинаться с '?' или '&')
+    let paramsStr = coursedata;
+    if (paramsStr.startsWith('?')) {
+        paramsStr = '&' + paramsStr.substring(1);
     }
-    console.log('Все параметры:', allParams);
+    const params = new URLSearchParams(paramsStr);
     const course = {
         id: params.get('id') || '',
         name: params.get('name') || '',
@@ -172,22 +211,22 @@ window.loadTargetCourse = function (coursedata) {
         start_date: params.get('start_date') || '',
         end_date: params.get('end_date') || '',
     };
-    console.log(course);
+
     const courseInfo = document.querySelector('.main-content');
     courseInfo.innerHTML = `
         <h2 id="courseTitle">Загрузка...</h2> 
         <div id="courseInfo"></div>
         <div id="contentItems" class="content-items"></div>
-        <div id="error" class="error"></div>`
-        ;
+        <div id="error" class="error"></div>`;
     const title = document.getElementById('courseTitle');
     const contentItems = document.getElementById('contentItems');
     const errorDiv = document.getElementById('error');
+
     if (!course.id) {
         errorDiv.textContent = 'Курс не найден';
         return;
     }
-    // Отображаем основную информацию о курсе
+
     title.textContent = course.name;
     contentItems.innerHTML = `
         <div class="field">
@@ -199,12 +238,14 @@ window.loadTargetCourse = function (coursedata) {
             <div class="value">${course.end_date}</div>
         </div>
     `;
+
     const username = localStorage.getItem('username');
     if (!username) {
         errorDiv.textContent = 'Необходимо войти в систему';
         setTimeout(() => window.location.href = '/', 2000);
         return;
     }
+
     // Загружаем содержимое курса
     fetch(`/course-content/${course.id}?username=${username}`)
         .then((response) => __awaiter(void 0, void 0, void 0, function* () {
@@ -216,74 +257,56 @@ window.loadTargetCourse = function (coursedata) {
                 const text = yield response.text();
                 throw new Error(text);
             }
-            // console.log('Содержимое курса:', response.json());
             return response.json();
         })).then((items) => {
-            //throw new Error('Начало обработки');
             if (!items) {
                 throw new Error('Ничего не получено');
             }
             const descBlock = document.createElement('div');
             descBlock.className = 'field';
-            descBlock.innerHTML = `
-            <h3>Содержание курса</h3>
-            `;
+            descBlock.innerHTML = `<h3>Содержание курса</h3>`;
             contentItems.appendChild(descBlock);
-            // Сортируемлучай)
-            //items.sort((a, b) => a.order - b.order); по order (на всякий с
+
             for (const item of items) {
                 const div = document.createElement('div');
                 div.className = 'content-item';
                 if (item.type === 'text' && item.text) {
-                    div.innerHTML = `
-                        <div class="text-content">${item.text.replace(/\n/g, '<br>')}</div>
-                    `;
+                    div.innerHTML = `<div class="text-content">${item.text.replace(/\n/g, '<br>')}</div>`;
+                } else if (item.type === 'file' && item.file) {
+                    div.innerHTML = `<a href="/file/${item.file.id}" download>${item.file.file_name}.${item.file.extension}</a>`;
+                } else if (item.type === 'task' && item.task) {
+                    div.innerHTML = `<a href="?task_id=${item.task.id}&time_id=${item.task.time_id}&name=${encodeURIComponent(item.task.name)}&qdescription=${encodeURIComponent(item.task.qdescription)}&adescription=${encodeURIComponent(item.task.adescription)}" class="task">${item.task.name}</a>`;
+                } else {
+                    continue;
                 }
-                else if (item.type === 'file' && item.file) {
-                    div.innerHTML = `
-                        <a href="/file/${item.file.id}" download>
-                        ${item.file.file_name}.${item.file.extension}
-                        </a>
-                    `;
-                }
-                else if (item.type === 'task' && item.task) {
-                    div.innerHTML = `
-                        <a href="&id=${item.task.id}&time_id=${item.task.time_id}&name=${encodeURIComponent(item.task.name)}&qdescription=${encodeURIComponent(item.task.qdescription)}&adescription=${encodeURIComponent(item.task.adescription)}"
-                        class="task">
-                        ${item.task.name}
-                        </a>
-                    `;
-                }
-                else {
-                    continue; // пропускаем пустые
-                }
-              
-
                 descBlock.appendChild(div);
             }
+
+            // Обновляем URL после полной загрузки
+            const newUrl = `/course?id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
+            updateUrlAndState(newUrl);
         })
         .catch(err => {
             console.error('Ошибка загрузки содержимого:', err);
             errorDiv.textContent = 'Не удалось загрузить содержимое курса';
         });
-}
+};
 
 window.loadTargetTask = async function (taskData) {
-    // 1. Парсим параметры из строки (исправляем возможный начальный '&')
+    // Нормализуем строку параметров
     let paramsStr = taskData;
-    if (paramsStr.startsWith('&')) {
-        paramsStr = '?' + paramsStr.substring(1);
+    if (paramsStr.startsWith('?')) {
+        paramsStr = '&' + paramsStr.substring(1);
     }
     const params = new URLSearchParams(paramsStr);
     const task = {
-        id: params.get('id') || '',
+        id: params.get('task_id') || params.get('id') || '',
         time_id: params.get('time_id') || '',
         name: params.get('name') || '',
         qdescription: params.get('qdescription') || '',
         adescription: params.get('adescription') || ''
     };
 
-    // 2. Подготовка DOM-элементов
     const taskInfo = document.querySelector('.main-content');
     if (!taskInfo) return;
 
@@ -304,7 +327,6 @@ window.loadTargetTask = async function (taskData) {
 
     title.textContent = task.name;
 
-    // 3. Получаем имя пользователя
     const username = localStorage.getItem('username');
     if (!username) {
         errorDiv.textContent = 'Необходимо войти в систему';
@@ -312,10 +334,8 @@ window.loadTargetTask = async function (taskData) {
         return;
     }
 
-    // 4. Запрос к серверу
     try {
         const response = await fetch(`/task/${task.id}/${task.time_id}?username=${encodeURIComponent(username)}`);
-
         if (response.status === 403) {
             errorDiv.textContent = 'У вас нет доступа к этому заданию';
             return;
@@ -326,32 +346,21 @@ window.loadTargetTask = async function (taskData) {
         }
 
         const data = await response.json();
-
-        // 5. Отрисовка данных
-        // Очищаем контейнер, оставляя возможность добавлять блоки
         contentItems.innerHTML = '';
 
-        // 5.1. Описания (из параметров URL)
         if (task.qdescription) {
             const descBlock = document.createElement('div');
             descBlock.className = 'field';
-            descBlock.innerHTML = `
-                <div class="label">Общее</div>
-                <div class="value">${task.qdescription.replace(/\n/g, '<br>')}</div>
-            `;
+            descBlock.innerHTML = `<div class="label">Общее</div><div class="value">${task.qdescription.replace(/\n/g, '<br>')}</div>`;
             contentItems.appendChild(descBlock);
         }
         if (task.adescription) {
             const ansDescBlock = document.createElement('div');
             ansDescBlock.className = 'field';
-            ansDescBlock.innerHTML = `
-                <div class="label">Описание ответа</div>
-                <div class="value">${task.adescription.replace(/\n/g, '<br>')}</div>
-            `;
+            ansDescBlock.innerHTML = `<div class="label">Описание ответа</div><div class="value">${task.adescription.replace(/\n/g, '<br>')}</div>`;
             contentItems.appendChild(ansDescBlock);
         }
 
-        // 5.2. Временные рамки
         if (data.time) {
             const timeBlock = document.createElement('div');
             timeBlock.className = 'time-info';
@@ -363,7 +372,6 @@ window.loadTargetTask = async function (taskData) {
             contentItems.appendChild(timeBlock);
         }
 
-        // 5.3. Файлы задания
         if (data.task_files && data.task_files.length > 0) {
             const filesBlock = document.createElement('div');
             filesBlock.className = 'task-files';
@@ -380,9 +388,9 @@ window.loadTargetTask = async function (taskData) {
             });
             contentItems.appendChild(filesBlock);
         }
-
-        // 5.4. Результат выполнения
+        let result_id = null;
         if (data.result) {
+            result_id = data.result.id;
             const resultBlock = document.createElement('div');
             resultBlock.className = 'task-result';
             resultBlock.innerHTML = `
@@ -392,13 +400,10 @@ window.loadTargetTask = async function (taskData) {
                 <div class="field"><div class="label">Оценка</div><div class="value">${data.result.result !== undefined ? data.result.result : '—'}</div></div>
             `;
             if (data.result.answertext && data.result.answertext.length > 0) {
-                resultBlock.innerHTML += `
-                <div class="field"><div class="label">Представленный ответ на задание: </div><div class="value">${data.result.answertext ? data.result.answertext.replace(/\n/g, '<br>') : '—'}</div></div>
-                `;
+                resultBlock.innerHTML += `<div class="field"><div class="label">Представленный ответ на задание: </div><div class="value">${data.result.answertext.replace(/\n/g, '<br>')}</div></div>`;
             }
             contentItems.appendChild(resultBlock);
 
-            // 5.5. Файлы ответа (если есть)
             if (data.answer_files && data.answer_files.length > 0) {
                 const answerFilesBlock = document.createElement('div');
                 answerFilesBlock.className = 'answer-files';
@@ -415,50 +420,43 @@ window.loadTargetTask = async function (taskData) {
                 });
                 contentItems.appendChild(answerFilesBlock);
             }
-        } else {
+            // Кнопка переприкрепления задания 
             const noResultBlock = document.createElement('div');
             noResultBlock.className = 'no-result';
             noResultBlock.innerHTML = `
-            <p>Задание еще не сдано.</p>
-            <button id="submitTaskBtn" class="btn">Сдать задание</button>
-            <div id="answerFormContainer" style="display:none;"></div>
+                <p>Изменить ответ</p>
+                <button id="resubmitTaskBtn" class="btn">Изменить</button>
+                <div id="answerFormContainer" style="display:none;"></div>
             `;
             contentItems.appendChild(noResultBlock);
-
-            // Обработчик кнопки сдачи
-            document.getElementById('submitTaskBtn')?.addEventListener('click', () => {
+            document.getElementById('resubmitTaskBtn')?.addEventListener('click', () => {
                 const container = document.getElementById('answerFormContainer');
                 if (!container) return;
-
-                // Если форма уже показана – скрываем, иначе показываем и заполняем
                 if (container.style.display === 'block') {
                     container.style.display = 'none';
                     container.innerHTML = '';
                     return;
                 }
-
-                // Создаём форму
                 container.style.display = 'block';
                 container.innerHTML = `
-        <h3>Сдать задание</h3>
-        <form id="answerForm">
-            <div class="field">
-                <label for="answerText">Ваш ответ (текст):</label>
-                <textarea id="answerText" name="answertext" rows="5" style="width:100%;"></textarea>
-            </div>
-            <div class="field">
-                <label for="answerFile">Прикрепить файл (необязательно):</label>
-                <input type="file" id="answerFile" name="file">
-            </div>
-            <button type="submit" class="btn">Отправить</button>
-            <button type="button" id="cancelAnswer" class="btn">Отмена</button>
-        </form>
-        <div id="answerStatus" class="status"></div>
-    `;
+                    <h3>Сдать задание</h3>
+                    <form id="answerForm">
+                        <div class="field">
+                            <label for="answerText">Ваш ответ (текст):</label>
+                            <textarea id="answerText" name="answertext" rows="5" style="width:100%;"></textarea>
+                        </div>
+                        <div class="field">
+                            <label for="answerFile">Прикрепить файл (необязательно):</label>
+                            <input type="file" id="answerFile" name="file">
+                        </div>
+                        <button type="submit" class="btn">Отправить</button>
+                        <button type="button" id="cancelAnswer" class="btn">Отмена</button>
+                    </form>
+                    <div id="answerStatus" class="status"></div>
+                `;
 
                 const form = document.getElementById('answerForm');
                 const cancelBtn = document.getElementById('cancelAnswer');
-
                 cancelBtn?.addEventListener('click', () => {
                     container.style.display = 'none';
                     container.innerHTML = '';
@@ -466,24 +464,17 @@ window.loadTargetTask = async function (taskData) {
 
                 form?.addEventListener('submit', async (e) => {
                     e.preventDefault();
-
                     const answerText = document.getElementById('answerText').value;
                     const fileInput = document.getElementById('answerFile');
                     const file = fileInput?.files?.[0];
-
                     let fileId = null;
 
-                    // Загрузка файла, если выбран
                     if (file) {
                         const formData = new FormData();
                         formData.append('file', file);
                         formData.append('username', username);
-
                         try {
-                            const uploadRes = await fetch('/upload', {
-                                method: 'POST',
-                                body: formData
-                            });
+                            const uploadRes = await fetch('/upload', { method: 'POST', body: formData });
                             if (!uploadRes.ok) throw new Error('Ошибка загрузки файла');
                             const uploadData = await uploadRes.json();
                             fileId = uploadData.file_id;
@@ -494,13 +485,12 @@ window.loadTargetTask = async function (taskData) {
                         }
                     }
 
-                    // Отправляем данные ответа
                     const payload = {
                         username: username,
-                        answer_id: 0,           // 0 = создать новый результат
+                        answer_id: result_id,
                         task_id: Number(task.id),
                         answertext: answerText,
-                        file_id: Number(fileId) !== null ? fileId : -1   // если файла нет, передаём -1 (или null, но процедура ожидает integer)
+                        file_id: fileId !== null ? Number(fileId) : -1
                     };
 
                     try {
@@ -516,7 +506,104 @@ window.loadTargetTask = async function (taskData) {
                         const result = await response.json();
                         if (result.success) {
                             document.getElementById('answerStatus').textContent = 'Ответ успешно сохранён!';
-                            // Перезагружаем задание, чтобы увидеть результат
+                            setTimeout(() => loadTargetTask(taskData), 1500);
+                        } else {
+                            document.getElementById('answerStatus').textContent = result.error || 'Ошибка сохранения';
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        document.getElementById('answerStatus').textContent = 'Ошибка связи с сервером';
+                    }
+                });
+            });
+            
+        } else {
+            const noResultBlock = document.createElement('div');
+            noResultBlock.className = 'no-result';
+            noResultBlock.innerHTML = `
+                <p>Задание еще не сдано.</p>
+                <button id="submitTaskBtn" class="btn">Сдать задание</button>
+                <div id="answerFormContainer" style="display:none;"></div>
+            `;
+            contentItems.appendChild(noResultBlock);
+
+            document.getElementById('submitTaskBtn')?.addEventListener('click', () => {
+                const container = document.getElementById('answerFormContainer');
+                if (!container) return;
+                if (container.style.display === 'block') {
+                    container.style.display = 'none';
+                    container.innerHTML = '';
+                    return;
+                }
+                container.style.display = 'block';
+                container.innerHTML = `
+                    <h3>Сдать задание</h3>
+                    <form id="answerForm">
+                        <div class="field">
+                            <label for="answerText">Ваш ответ (текст):</label>
+                            <textarea id="answerText" name="answertext" rows="5" style="width:100%;"></textarea>
+                        </div>
+                        <div class="field">
+                            <label for="answerFile">Прикрепить файл (необязательно):</label>
+                            <input type="file" id="answerFile" name="file">
+                        </div>
+                        <button type="submit" class="btn">Отправить</button>
+                        <button type="button" id="cancelAnswer" class="btn">Отмена</button>
+                    </form>
+                    <div id="answerStatus" class="status"></div>
+                `;
+
+                const form = document.getElementById('answerForm');
+                const cancelBtn = document.getElementById('cancelAnswer');
+                cancelBtn?.addEventListener('click', () => {
+                    container.style.display = 'none';
+                    container.innerHTML = '';
+                });
+
+                form?.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const answerText = document.getElementById('answerText').value;
+                    const fileInput = document.getElementById('answerFile');
+                    const file = fileInput?.files?.[0];
+                    let fileId = null;
+
+                    if (file) {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        formData.append('username', username);
+                        try {
+                            const uploadRes = await fetch('/upload', { method: 'POST', body: formData });
+                            if (!uploadRes.ok) throw new Error('Ошибка загрузки файла');
+                            const uploadData = await uploadRes.json();
+                            fileId = uploadData.file_id;
+                        } catch (err) {
+                            console.error(err);
+                            document.getElementById('answerStatus').textContent = 'Не удалось загрузить файл';
+                            return;
+                        }
+                    }
+
+                    const payload = {
+                        username: username,
+                        answer_id: 0,
+                        task_id: Number(task.id),
+                        answertext: answerText,
+                        file_id: fileId !== null ? Number(fileId) : -1
+                    };
+
+                    try {
+                        const response = await fetch('/set-answer', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (!response.ok) {
+                            const errText = await response.text();
+                            throw new Error(errText);
+                        }
+                        const result = await response.json();
+                        if (result.success) {
+                            document.getElementById('answerStatus').textContent = 'Ответ успешно сохранён!';
                             setTimeout(() => loadTargetTask(taskData), 1500);
                         } else {
                             document.getElementById('answerStatus').textContent = result.error || 'Ошибка сохранения';
@@ -528,40 +615,37 @@ window.loadTargetTask = async function (taskData) {
                 });
             });
         }
-
+        
+        // Обновляем URL
+        let newUrl= `/task?task_id=${task.id}&time_id=${task.time_id}&name=${encodeURIComponent(task.name)}&qdescription=${encodeURIComponent(task.qdescription)}&adescription=${encodeURIComponent(task.adescription)}`;
+        if(result_id !== null){
+            newUrl+= `&answer_id=${result_id}`;
+        }
+        updateUrlAndState(newUrl);
     } catch (err) {
         console.error('Ошибка загрузки задания:', err);
         errorDiv.textContent = 'Не удалось загрузить данные задания';
     }
 };
 
-
-
-// Глобальное состояние: какой месяц сейчас отображается
-window.calendarState = {
-    currentDate: new Date() // по умолчанию — текущий месяц
-};
+// === КАЛЕНДАРЬ (не зависит от маршрутов) ===
+window.calendarState = { currentDate: new Date() };
 
 window.updateCalendar = function (targetDate = null) {
     const calendarMonth = document.querySelector('.calendar-month');
     const calendarGrid = document.querySelector('.calendar-grid');
     if (!calendarMonth || !calendarGrid) return;
 
-    // Если передана дата — переключаемся на неё, иначе берём из состояния
     const displayDate = targetDate ? new Date(targetDate) : window.calendarState.currentDate;
-    window.calendarState.currentDate = displayDate; // сохраняем в состояние
+    window.calendarState.currentDate = displayDate;
 
     const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
         'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
     const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
-    // Обновляем заголовок
     calendarMonth.textContent = `${months[displayDate.getMonth()]} ${displayDate.getFullYear()}`;
-
-    // Очищаем и пересоздаём сетку
     calendarGrid.innerHTML = '';
-    
-    // Заголовки дней недели
+
     dayNames.forEach(day => {
         const header = document.createElement('div');
         header.className = 'calendar-day-header';
@@ -569,72 +653,53 @@ window.updateCalendar = function (targetDate = null) {
         calendarGrid.appendChild(header);
     });
 
-    // Вычисления для сетки
     const firstDay = new Date(displayDate.getFullYear(), displayDate.getMonth(), 1).getDay();
     const daysInMonth = new Date(displayDate.getFullYear(), displayDate.getMonth() + 1, 0).getDate();
-    const adjustedFirstDay = firstDay === 0 ? 6 : firstDay - 1; // неделя с понедельника
+    const adjustedFirstDay = firstDay === 0 ? 6 : firstDay - 1;
 
-    // Пустые ячейки до первого дня
     for (let i = 0; i < adjustedFirstDay; i++) {
         const empty = document.createElement('div');
         empty.className = 'calendar-day other-month';
         calendarGrid.appendChild(empty);
     }
-    
-    // Дни месяца
+
     const today = new Date();
     const isCurrentMonth = displayDate.getMonth() === today.getMonth() && 
                            displayDate.getFullYear() === today.getFullYear();
-    
+
     for (let day = 1; day <= daysInMonth; day++) {
         const dayEl = document.createElement('div');
-        dayEl.className = 'calendar-day' + 
-            (isCurrentMonth && day === today.getDate() ? ' today' : '');
+        dayEl.className = 'calendar-day' + (isCurrentMonth && day === today.getDate() ? ' today' : '');
         dayEl.textContent = day;
         dayEl.dataset.date = `${displayDate.getFullYear()}-${String(displayDate.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
         calendarGrid.appendChild(dayEl);
     }
-}
+};
 
-// === Инициализация навигации ===
+// === ИНИЦИАЛИЗАЦИЯ ===
 document.addEventListener('DOMContentLoaded', () => {
-    // Первоначальная отрисовка
-    window.updateCalendar();
+    // Восстанавливаем состояние по текущему URL
+    restoreStateFromURL();
 
-    // Обработчики кнопок ← →
+    // Календарь
+    window.updateCalendar();
     document.querySelectorAll('.calendar-nav').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const direction = e.target.textContent.trim();
             const current = window.calendarState.currentDate;
             const newDate = new Date(current);
-            
-            if (direction === '←') {
-                // Предыдущий месяц
-                newDate.setMonth(newDate.getMonth() - 1);
-            } else if (direction === '→') {
-                // Следующий месяц
-                newDate.setMonth(newDate.getMonth() + 1);
-            }
-            
+            if (direction === '←') newDate.setMonth(newDate.getMonth() - 1);
+            else if (direction === '→') newDate.setMonth(newDate.getMonth() + 1);
             window.updateCalendar(newDate);
         });
     });
-});
 
-// === ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ СТРАНИЦЫ ===
-document.addEventListener('DOMContentLoaded', () => {
+    // Приветствие
     const username = localStorage.getItem('username');
     const helloUser = document.querySelector('.helloUser');
+    if (username && helloUser) helloUser.textContent = `Здравствуйте, ${username}!`;
 
-    if (username && helloUser) {
-        helloUser.textContent = `Здравствуйте, ${username}!`;
-    }
-
-    // Загружаем курсы по умолчанию
-    loadCourses();
-    updateCalendar();
-
-    // Обработчик для кнопки "Личный кабинет"
+    // Обработчик кнопки "Личный кабинет"
     const cabinetLink = document.querySelector('.cabinet-link');
     if (cabinetLink) {
         cabinetLink.addEventListener('click', (e) => {
@@ -643,30 +708,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Обработчик кликов по курсам
     document.addEventListener('click', (e) => {
         if (e.target.classList.contains('targetcourse')) {
             e.preventDefault();
-            const courseName = e.target.textContent.trim();
-            console.log("Click on course:", courseName);
-
-            // Здесь вызовите функцию загрузки курса
-            // Например, с передачей данных:
-
-            loadTargetCourse(e.target.href);
+            const url = new URL(e.target.href);
+            loadTargetCourse(url.search);
         }
-
-
     });
+
+    // Обработчик кликов по заданиям
     document.addEventListener('click', (e) => {
         if (e.target.classList.contains('task')) {
             e.preventDefault();
-            const taskName = e.target.textContent.trim();
-            console.log("Click on task:", taskName);
-
-            // Здесь вызовите функцию загрузки курса
-            // Например, с передачей данных:
-
-            loadTargetTask(e.target.href);
+            const url = new URL(e.target.href);
+            loadTargetTask(url.search);
         }
+    });
+
+    // Обработчик навигации назад/вперёд
+    window.addEventListener('popstate', () => {
+        restoreStateFromURL();
     });
 });

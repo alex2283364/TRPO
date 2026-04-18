@@ -91,11 +91,13 @@ ALTER PROCEDURE base.add_user(IN p_user_name character varying, IN p_email chara
 -- Name: authenticate_role(character varying); Type: FUNCTION; Schema: base; Owner: postgres
 --
 
-CREATE FUNCTION base.authenticate_role(p_login character varying) RETURNS boolean
+CREATE FUNCTION base.authenticate_role(p_login character varying) RETURNS TABLE(hasrole boolean, roletype character varying)
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
-    v_user_id       INTEGER;
+    v_user_id   INTEGER;
+    v_role_id   INTEGER;
+    v_role_name VARCHAR;
 BEGIN
     -- Ищем активного пользователя по user_name или email
     SELECT u.id
@@ -105,18 +107,31 @@ BEGIN
       AND u.is_active = TRUE;
 
     -- Если пользователь не найден или неактивен
-    IF NOT FOUND THEN
-        RETURN False;
+    IF v_user_id IS NULL THEN
+        RETURN QUERY SELECT FALSE, NULL::VARCHAR;
+        RETURN;
     END IF;
+
     -- Ищем привязанную роль
-    PERFORM us.role_id 
+    SELECT us.role_id
+    INTO v_role_id
     FROM base.userrole us
-    WHERE(v_user_id = us.user_id);
-    IF FOUND THEN
-        RETURN True;
-    END IF;
-    IF NOT FOUND THEN
-        RETURN False;
+    WHERE us.user_id = v_user_id;
+
+    -- Если роль есть – получаем её имя
+    IF v_role_id IS NOT NULL THEN
+        SELECT ut.role_name
+        INTO v_role_name
+        FROM base.userroletype ut
+        WHERE ut.id = v_role_id;
+
+        IF v_role_name IS NOT NULL THEN
+            RETURN QUERY SELECT TRUE, v_role_name;
+        ELSE
+            RETURN QUERY SELECT FALSE, NULL::VARCHAR;
+        END IF;
+    ELSE
+        RETURN QUERY SELECT FALSE, NULL::VARCHAR;
     END IF;
 END;
 $$;
@@ -433,8 +448,8 @@ BEGIN
     DELETE FROM base.taskresult
     WHERE base.taskresult.id = p_answer_id;
     
-    INSERT INTO base.validation (user_id,change_date)
-    VALUES (v_user_id,NOW())
+    INSERT INTO base.validation (user_id,change_date,task_id)
+    VALUES (v_user_id,NOW(),p_task_id)
     RETURNING base.validation.id INTO v_validation_id;
 
     INSERT INTO base.taskresult (task_id,validation_id,create_date,answertext)
@@ -478,6 +493,18 @@ ALTER FUNCTION base.upload_file(p_file_name character varying, p_path character 
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: answercomment; Type: TABLE; Schema: base; Owner: postgres
+--
+
+CREATE TABLE base.answercomment (
+    taskresult_id integer,
+    comment_id integer
+);
+
+
+ALTER TABLE base.answercomment OWNER TO postgres;
 
 --
 -- Name: answerfile; Type: TABLE; Schema: base; Owner: postgres
@@ -902,18 +929,6 @@ ALTER SEQUENCE base.task_id_seq OWNED BY base.task.id;
 
 
 --
--- Name: taskcomment; Type: TABLE; Schema: base; Owner: postgres
---
-
-CREATE TABLE base.taskcomment (
-    task_id integer,
-    comment_id integer
-);
-
-
-ALTER TABLE base.taskcomment OWNER TO postgres;
-
---
 -- Name: taskfile; Type: TABLE; Schema: base; Owner: postgres
 --
 
@@ -1287,7 +1302,8 @@ CREATE TABLE base.validation (
     id integer NOT NULL,
     validation character varying(255) DEFAULT 'verification'::character varying NOT NULL,
     user_id integer,
-    change_date timestamp without time zone
+    change_date timestamp without time zone,
+    task_id integer
 );
 
 
@@ -1442,13 +1458,21 @@ ALTER TABLE ONLY base.validation ALTER COLUMN id SET DEFAULT nextval('base.valid
 
 
 --
+-- Data for Name: answercomment; Type: TABLE DATA; Schema: base; Owner: postgres
+--
+
+COPY base.answercomment (taskresult_id, comment_id) FROM stdin;
+\.
+
+
+--
 -- Data for Name: answerfile; Type: TABLE DATA; Schema: base; Owner: postgres
 --
 
 COPY base.answerfile (taskresult_id, file_id) FROM stdin;
-11	12
 12	13
 13	14
+6	6
 \.
 
 
@@ -1532,6 +1556,9 @@ COPY base.file (id, file_name, path, extension, size) FROM stdin;
 12	АИС ЛР + 5-6 (1)...48ccee4c-c4fa-43e6-8b06-8e20c77e6aaf	./file/answers/	docx	27978
 13	10.Доклад...7c6accb4-090d-453b-bb95-b8aee8541269	./file/answers/	docx	504607
 14	Solid_AdultEn...304439e5-f09f-4dde-83d5-6605233c6f35	./file/answers/	xml	319785
+4	FinOptimaProcess...1f22e1ea-b198-4596-8b7b-eacf2a98785c	./file/answers/	bpmn	11026
+5	АИС. Лабораторные 5-6 теория...2843ef03-05a0-4d50-a1e7-fddd01dbabcd	./file/answers/	pdf	4768083
+6	edited_image (8)...6f4e7fec-2ebb-4eb4-a3a3-c9bb0c38b907	./file/answers/	png	4620602
 \.
 
 
@@ -1617,6 +1644,7 @@ COPY base.salt (id, salt) FROM stdin;
 49	$2a$06$zu45OPPXKDkzaT8i1jOUA.
 51	$2a$06$.1uERzu1Q8TqMxi3wswGbu
 52	$2a$06$7h0nLhAl8pOdM3wxcFvEr.
+82	$2a$06$V.EBj7v/7M.G6lOtZ3SeCO
 \.
 
 
@@ -1655,14 +1683,6 @@ COPY base.task (id, name, time_id, qdescription, adescription) FROM stdin;
 
 
 --
--- Data for Name: taskcomment; Type: TABLE DATA; Schema: base; Owner: postgres
---
-
-COPY base.taskcomment (task_id, comment_id) FROM stdin;
-\.
-
-
---
 -- Data for Name: taskfile; Type: TABLE DATA; Schema: base; Owner: postgres
 --
 
@@ -1676,9 +1696,9 @@ COPY base.taskfile (task_id, file_id) FROM stdin;
 --
 
 COPY base.taskresult (id, task_id, validation_id, create_date, result, answertext) FROM stdin;
-11	1	1	2026-03-26 16:29:05.71		ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ
 12	3	2	2026-03-26 17:00:15.1		ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ
 13	3	3	2026-03-26 17:01:26.232		ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ ТЕСТ
+6	1	8	2026-04-18 15:41:18.517234	\N	Новый ответ 3
 \.
 
 
@@ -1750,6 +1770,7 @@ COPY base."time" (id, name, start_date, end_date) FROM stdin;
 COPY base.userrole (user_id, role_id) FROM stdin;
 48	1
 49	2
+60	3
 \.
 
 
@@ -1758,9 +1779,9 @@ COPY base.userrole (user_id, role_id) FROM stdin;
 --
 
 COPY base.userroletype (id, role_name, permission_oid) FROM stdin;
-2	студент	0BLA-Yqt
-3	студент	0BLA-Yqe
 1	student	0BLA-Yqh
+2	student	0BLA-Yqt
+3	student	0BLA-Yqe
 \.
 
 
@@ -1786,6 +1807,7 @@ COPY base.users (id, user_name, password_hash, email, is_active, create_at, salt
 45	qwe3	263c2ef0980c7248a68ba360d0950d7f77b4979653dbbca01a30628389a049c1	asd3	t	2026-03-11 12:24:35.377	45
 48	test5	bc2701ae59b1b1e377b01913519bb31e88bdd75451643e1beb0e970aeba873e2	test5@test.test	t	2026-03-11 09:38:57.54	48
 49	test6	1cf9df01b9dabdacd419a7ff5827c475d6f2d2bfa2c4b2986f1721bb1add53b3	test6@test.test	t	2026-03-11 11:03:44.151	49
+60	test7	09668eaf712691a57ea4f346a5e86a4278c2f178a218326aa86f9f4347abb5c5	test7@test.test	t	2026-04-10 11:09:01.588094	82
 \.
 
 
@@ -1794,9 +1816,9 @@ COPY base.users (id, user_name, password_hash, email, is_active, create_at, salt
 --
 
 COPY base.usertaskanswer (taskresult_id, user_id) FROM stdin;
-11	48
 12	49
 13	48
+6	48
 \.
 
 
@@ -1812,10 +1834,14 @@ COPY base.usertestanswer (testresult_id, user_id, type, relevance) FROM stdin;
 -- Data for Name: validation; Type: TABLE DATA; Schema: base; Owner: postgres
 --
 
-COPY base.validation (id, validation, user_id, change_date) FROM stdin;
-1	verification	1	2026-04-01 00:00:00
-2	verification	1	2026-04-01 00:00:00
-3	verification	1	2026-04-01 00:00:00
+COPY base.validation (id, validation, user_id, change_date, task_id) FROM stdin;
+1	verification	1	2026-04-01 00:00:00	\N
+2	verification	1	2026-04-01 00:00:00	\N
+3	verification	1	2026-04-01 00:00:00	\N
+5	verification	48	2026-04-18 17:26:58.811061	\N
+6	verification	48	2026-04-18 15:31:48.360321	\N
+7	verification	48	2026-04-18 15:32:21.944682	\N
+8	verification	48	2026-04-18 15:41:18.517234	1
 \.
 
 
@@ -1844,7 +1870,7 @@ SELECT pg_catalog.setval('base.cours_id_seq', 1, false);
 -- Name: file_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.file_id_seq', 1, false);
+SELECT pg_catalog.setval('base.file_id_seq', 6, true);
 
 
 --
@@ -1865,7 +1891,7 @@ SELECT pg_catalog.setval('base.inventory_id_seq', 1, false);
 -- Name: salt_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.salt_id_seq', 1, false);
+SELECT pg_catalog.setval('base.salt_id_seq', 82, true);
 
 
 --
@@ -1886,7 +1912,7 @@ SELECT pg_catalog.setval('base.task_id_seq', 1, false);
 -- Name: taskresult_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.taskresult_id_seq', 1, true);
+SELECT pg_catalog.setval('base.taskresult_id_seq', 6, true);
 
 
 --
@@ -1935,14 +1961,14 @@ SELECT pg_catalog.setval('base.userroletype_id_seq', 1, false);
 -- Name: users_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.users_id_seq', 1, false);
+SELECT pg_catalog.setval('base.users_id_seq', 60, true);
 
 
 --
 -- Name: validation_id_seq; Type: SEQUENCE SET; Schema: base; Owner: postgres
 --
 
-SELECT pg_catalog.setval('base.validation_id_seq', 3, true);
+SELECT pg_catalog.setval('base.validation_id_seq', 8, true);
 
 
 --
@@ -2130,6 +2156,22 @@ ALTER TABLE ONLY base.validation
 
 
 --
+-- Name: answercomment answercomment_comment_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.answercomment
+    ADD CONSTRAINT answercomment_comment_id_fkey FOREIGN KEY (comment_id) REFERENCES base.comment(id);
+
+
+--
+-- Name: answercomment answercomment_taskresult_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.answercomment
+    ADD CONSTRAINT answercomment_taskresult_id_fkey FOREIGN KEY (taskresult_id) REFERENCES base.taskresult(id);
+
+
+--
 -- Name: answerfile answerfile_file_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
@@ -2290,22 +2332,6 @@ ALTER TABLE ONLY base.task
 
 
 --
--- Name: taskcomment taskcomment_comment_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.taskcomment
-    ADD CONSTRAINT taskcomment_comment_id_fkey FOREIGN KEY (comment_id) REFERENCES base.comment(id);
-
-
---
--- Name: taskcomment taskcomment_task_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
---
-
-ALTER TABLE ONLY base.taskcomment
-    ADD CONSTRAINT taskcomment_task_id_fkey FOREIGN KEY (task_id) REFERENCES base.task(id);
-
-
---
 -- Name: taskfile taskfile_file_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
 --
 
@@ -2447,6 +2473,14 @@ ALTER TABLE ONLY base.usertestanswer
 
 ALTER TABLE ONLY base.usertestanswer
     ADD CONSTRAINT usertestanswer_user_id_fkey FOREIGN KEY (user_id) REFERENCES base.users(id);
+
+
+--
+-- Name: validation validation_task_id_fkey; Type: FK CONSTRAINT; Schema: base; Owner: postgres
+--
+
+ALTER TABLE ONLY base.validation
+    ADD CONSTRAINT validation_task_id_fkey FOREIGN KEY (task_id) REFERENCES base.task(id);
 
 
 --
@@ -2594,6 +2628,13 @@ GRANT ALL ON FUNCTION base.upload_file(p_file_name character varying, p_path cha
 
 
 --
+-- Name: TABLE answercomment; Type: ACL; Schema: base; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.answercomment TO admin;
+
+
+--
 -- Name: TABLE answerfile; Type: ACL; Schema: base; Owner: postgres
 --
 
@@ -2713,13 +2754,6 @@ GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.ta
 
 
 --
--- Name: TABLE taskcomment; Type: ACL; Schema: base; Owner: postgres
---
-
-GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.taskcomment TO admin;
-
-
---
 -- Name: TABLE taskfile; Type: ACL; Schema: base; Owner: postgres
 --
 
@@ -2801,6 +2835,7 @@ GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.us
 --
 
 GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE base.users TO admin;
+GRANT SELECT ON TABLE base.users TO "publicUser";
 
 
 --

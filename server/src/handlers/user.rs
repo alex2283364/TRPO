@@ -91,6 +91,8 @@ pub async fn authenticate(
     creds: web::Json<LoginRequest>,
 ) -> impl Responder {
     let pool = &state.public_pool;
+
+    // 1. Проверка пароля (функция authenticate_user)
     let auth_result = sqlx::query_scalar::<_, bool>("SELECT base.authenticate_user($1, $2)")
         .bind(&creds.login)
         .bind(&creds.password)
@@ -99,17 +101,34 @@ pub async fn authenticate(
 
     match auth_result {
         Ok(true) => {
-            let role_result = sqlx::query_scalar::<_, bool>("SELECT base.authenticate_role($1)")
-                .bind(&creds.login)
-                .fetch_one(pool)
-                .await;
+            // 2. Получение информации о роли (новая функция authenticate_role)
+            // Функция возвращает таблицу: (hasRole BOOLEAN, roleType VARCHAR)
+            let role_row = sqlx::query_as::<_, (bool, Option<String>)>(
+                "SELECT * FROM base.authenticate_role($1)"
+            )
+            .bind(&creds.login)
+            .fetch_optional(pool)
+            .await;
 
-            match role_result {
-                Ok(has_role) => HttpResponse::Ok().json(LoginResponse {
-                    authenticated: true,
-                    role_bound: has_role,
-                    token: None,
-                }),
+            match role_row {
+                Ok(Some((has_role, role_type))) => {
+                    HttpResponse::Ok().json(LoginResponse {
+                        authenticated: true,
+                        role_bound: has_role,
+                        role_type,
+                        token: None,
+                    })
+                }
+                Ok(None) => {
+                    // Теоретически функция всегда возвращает строку, но на всякий случай
+                    eprintln!("Неожиданный пустой результат от authenticate_role");
+                    HttpResponse::Ok().json(LoginResponse {
+                        authenticated: true,
+                        role_bound: false,
+                        role_type: None,
+                        token: None,
+                    })
+                }
                 Err(e) => {
                     eprintln!("Ошибка проверки роли: {:?}", e);
                     HttpResponse::InternalServerError().body("Ошибка проверки роли")
@@ -119,6 +138,7 @@ pub async fn authenticate(
         Ok(false) => HttpResponse::Unauthorized().json(LoginResponse {
             authenticated: false,
             role_bound: false,
+            role_type: None,
             token: None,
         }),
         Err(e) => {

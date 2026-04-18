@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" 
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" 
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" 
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI" 
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" 
+                  id="Definitions_1" 
+                  targetNamespace="http://bpmn.io/schema/bpmn" 
+                  exporter="Camunda Modeler" 
+                  exporterVersion="5.0.0">
+  
+  <bpmn:process id="FinOptimaProcess" name="Процесс автоматизированного финансового консультирования" isExecutable="true">
+    
+    <!-- Начальное событие: Запрос пользователя -->
+    <bpmn:startEvent id="StartEvent_Request" name="Запрос консультации">
+      <bpmn:outgoing>Flow_RequestToAuth</bpmn:outgoing>
+    </bpmn:startEvent>
+    
+    <!-- Задача: Авторизация пользователя в системе -->
+    <bpmn:userTask id="Task_Authorize" name="Авторизация пользователя">
+      <bpmn:incoming>Flow_RequestToAuth</bpmn:incoming>
+      <bpmn:outgoing>Flow_AuthToImport</bpmn:outgoing>
+    </bpmn:userTask>
+    
+    <!-- Задача: Импорт финансовых данных -->
+    <bpmn:serviceTask id="Task_ImportData" name="Импорт данных о доходах и расходах">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="import-financial-data" retries="3" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_AuthToImport</bpmn:incoming>
+      <bpmn:outgoing>Flow_ImportToAnalyze</bpmn:outgoing>
+    </bpmn:serviceTask>
+    
+    <!-- Задача: Анализ и категоризация данных -->
+    <bpmn:serviceTask id="Task_AnalyzeData" name="Анализ и категоризация транзакций">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="analyze-financial-data" retries="3" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_ImportToAnalyze</bpmn:incoming>
+      <bpmn:outgoing>Flow_AnalyzeToGateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+    
+    <!-- Эксклюзивный шлюз: Проверка достаточности данных -->
+    <bpmn:exclusiveGateway id="Gateway_DataSufficient" name="Данные достаточны?">
+      <bpmn:incoming>Flow_AnalyzeToGateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_DataSufficient</bpmn:outgoing>
+      <bpmn:outgoing>Flow_DataInsufficient</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    
+    <!-- Задача: Генерация инвестиционных рекомендаций (основной путь) -->
+    <bpmn:serviceTask id="Task_GenerateAdvice" name="Генерация персонализированных рекомендаций">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="generate-investment-advice" retries="3" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_DataSufficient</bpmn:incoming>
+      <bpmn:outgoing>Flow_AdviceToReport</bpmn:outgoing>
+    </bpmn:serviceTask>
+    
+    <!-- Задача: Создание финансового отчета -->
+    <bpmn:serviceTask id="Task_CreateReport" name="Формирование финансового отчета">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="create-financial-report" retries="3" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>Flow_AdviceToReport</bpmn:incoming>
+      <bpmn:outgoing>Flow_ReportToUser</bpmn:outgoing>
+    </bpmn:serviceTask>
+    
+    <!-- Задача: Предоставление результатов пользователю -->
+    <bpmn:userTask id="Task_ProvideResults" name="Отображение отчета и рекомендаций пользователю">
+      <bpmn:incoming>Flow_ReportToUser</bpmn:incoming>
+      <bpmn:outgoing>Flow_ResultsToEnd</bpmn:outgoing>
+    </bpmn:userTask>
+    
+    <!-- Конечное событие: Процесс завершен -->
+    <bpmn:endEvent id="EndEvent_Completed" name="Консультация завершена">
+      <bpmn:incoming>Flow_ResultsToEnd</bpmn:incoming>
+      <bpmn:incoming>Flow_DataInsufficient</bpmn:incoming>
+    </bpmn:endEvent>
+    
+    <!-- Потоки управления -->
+    <bpmn:sequenceFlow id="Flow_RequestToAuth" sourceRef="StartEvent_Request" targetRef="Task_Authorize" />
+    <bpmn:sequenceFlow id="Flow_AuthToImport" sourceRef="Task_Authorize" targetRef="Task_ImportData" />
+    <bpmn:sequenceFlow id="Flow_ImportToAnalyze" sourceRef="Task_ImportData" targetRef="Task_AnalyzeData" />
+    <bpmn:sequenceFlow id="Flow_AnalyzeToGateway" sourceRef="Task_AnalyzeData" targetRef="Gateway_DataSufficient" />
+    
+    <!-- Условные потоки для шлюза -->
+    <bpmn:sequenceFlow id="Flow_DataSufficient" sourceRef="Gateway_DataSufficient" targetRef="Task_GenerateAdvice">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${dataSufficient == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    
+    <bpmn:sequenceFlow id="Flow_DataInsufficient" sourceRef="Gateway_DataSufficient" targetRef="EndEvent_Completed">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${dataSufficient == false}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    
+    <bpmn:sequenceFlow id="Flow_AdviceToReport" sourceRef="Task_GenerateAdvice" targetRef="Task_CreateReport" />
+    <bpmn:sequenceFlow id="Flow_ReportToUser" sourceRef="Task_CreateReport" targetRef="Task_ProvideResults" />
+    <bpmn:sequenceFlow id="Flow_ResultsToEnd" sourceRef="Task_ProvideResults" targetRef="EndEvent_Completed" />
+
+  </bpmn:process>
+  
+  <!-- Определение диаграммы для визуального отображения в Camunda Modeler -->
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="FinOptimaProcess">
+      
+      <!-- Начальное событие -->
+      <bpmndi:BPMNShape id="Shape_StartEvent" bpmnElement="StartEvent_Request">
+        <dc:Bounds x="200" y="100" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="180" y="140" width="80" height="20" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      
+      <!-- Задача: Авторизация -->
+      <bpmndi:BPMNShape id="Shape_Authorize" bpmnElement="Task_Authorize">
+        <dc:Bounds x="300" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      
+      <!-- Задача: Импорт данных -->
+      <bpmndi:BPMNShape id="Shape_ImportData" bpmnElement="Task_ImportData">
+        <dc:Bounds x="460" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      
+      <!-- Задача: Анализ данных -->
+      <bpmndi:BPMNShape id="Shape_AnalyzeData" bpmnElement="Task_AnalyzeData">
+        <dc:Bounds x="620" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      
+      <!-- Эксклюзивный шлюз -->
+      <bpmndi:BPMNShape id="Shape_Gateway" bpmnElement="Gateway_DataSufficient">
+        <dc:Bounds x="780" y="85" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="770" y="140" width="80" height="20" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      
+      <!-- Задача: Генерация рекомендаций -->
+      <bpmndi:BPMNShape id="Shape_GenerateAdvice" bpmnElement="Task_GenerateAdvice">
+        <dc:Bounds x="920" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      
+      <!-- Задача: Создание отчета -->
+      <bpmndi:BPMNShape id="Shape_CreateReport" bpmnElement="Task_CreateReport">
+        <dc:Bounds x="1080" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      
+      <!-- Задача: Предоставление результатов -->
+      <bpmndi:BPMNShape id="Shape_ProvideResults" bpmnElement="Task_ProvideResults">
+        <dc:Bounds x="1240" y="80" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      
+      <!-- Конечное событие -->
+      <bpmndi:BPMNShape id="Shape_EndEvent" bpmnElement="EndEvent_Completed">
+        <dc:Bounds x="1400" y="102" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1380" y="140" width="80" height="20" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      
+      <!-- Соединительные линии (edges) -->
+      <bpmndi:BPMNEdge id="Edge_RequestToAuth" bpmnElement="Flow_RequestToAuth">
+        <di:waypoint x="236" y="118" />
+        <di:waypoint x="300" y="120" />
+      </bpmndi:BPMNEdge>
+      
+      <bpmndi:BPMNEdge id="Edge_AuthToImport" bpmnElement="Flow_AuthToImport">
+        <di:waypoint x="400" y="120" />
+        <di:waypoint x="460" y="120" />
+      </bpmndi:BPMNEdge>
+      
+      <bpmndi:BPMNEdge id="Edge_ImportToAnalyze" bpmnElement="Flow_ImportToAnalyze">
+        <di:waypoint x="560" y="120" />
+        <di:waypoint x="620" y="120" />
+      </bpmndi:BPMNEdge>
+      
+      <bpmndi:BPMNEdge id="Edge_AnalyzeToGateway" bpmnElement="Flow_AnalyzeToGateway">
+        <di:waypoint x="720" y="120" />
+        <di:waypoint x="780" y="110" />
+      </bpmndi:BPMNEdge>
+      
+      <bpmndi:BPMNEdge id="Edge_DataSufficient" bpmnElement="Flow_DataSufficient">
+        <di:waypoint x="805" y="110" />
+        <di:waypoint x="920" y="120" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="850" y="95" width="60" height="20" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      
+      <bpmndi:BPMNEdge id="Edge_DataInsufficient" bpmnElement="Flow_DataInsufficient">
+        <di:waypoint x="805" y="135" />
+        <di:waypoint x="805" y="220" />
+        <di:waypoint x="1418" y="220" />
+        <di:waypoint x="1418" y="138" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1100" y="210" width="100" height="20" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      
+      <bpmndi:BPMNEdge id="Edge_AdviceToReport" bpmnElement="Flow_AdviceToReport">
+        <di:waypoint x="1020" y="120" />
+        <di:waypoint x="1080" y="120" />
+      </bpmndi:BPMNEdge>
+      
+      <bpmndi:BPMNEdge id="Edge_ReportToUser" bpmnElement="Flow_ReportToUser">
+        <di:waypoint x="1180" y="120" />
+        <di:waypoint x="1240" y="120" />
+      </bpmndi:BPMNEdge>
+      
+      <bpmndi:BPMNEdge id="Edge_ResultsToEnd" bpmnElement="Flow_ResultsToEnd">
+        <di:waypoint x="1340" y="120" />
+        <di:waypoint x="1400" y="120" />
+      </bpmndi:BPMNEdge>
+      
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  
+</bpmn:definitions>
