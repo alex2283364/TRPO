@@ -8,3 +8,4 @@
 pub mod user;
 pub mod course;
 pub mod answer;
+pub mod teacher;

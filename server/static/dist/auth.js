@@ -36,10 +36,15 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const result = yield response.json();
             if (result.authenticated) {
-                if (result.role_bound) {
+                if (result.role_bound && result.role_type == "student") {
                     localStorage.setItem('username', login);
                     showMessage('Успешный вход! Перенаправление...', 'success', messageDiv);
                     setTimeout(() => window.location.href = '/mainpage.html', 500);
+                }
+                else if(result.role_bound && result.role_type == "teacher"){
+                    localStorage.setItem('username', login);
+                    showMessage('Успешный вход! Перенаправление...', 'success', messageDiv);
+                    setTimeout(() => window.location.href = '/mainpageTeacher.html', 500);
                 }
                 else {
                     currentLogin = login;

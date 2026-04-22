@@ -24,7 +24,7 @@ function restoreStateFromURL() {
     if (path === '/' || (path === '' && !search)) {
         loadCourses();
     } else if (path === '/profile') {
-        loadUserInfo();
+        loadTeacherInfo();
     } else if (path === '/course') {
         const params = new URLSearchParams(search);
         let paramStr = '';
@@ -76,7 +76,7 @@ window.loadCourses = function () {
     const coursesContainer = document.querySelector('.course-list');
     if (!navContainer || !coursesContainer) return;
 
-    fetch('/courses', {
+    fetch('/courses-teacher', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username || '' })
@@ -131,7 +131,7 @@ window.loadCourses = function () {
         });
 };
 
-window.loadUserInfo = function () {
+window.loadTeacherInfo = function () {
     const username = localStorage.getItem('username');
     const mainContainer = document.querySelector('.main-content');
     const errorDiv = document.getElementById('error');
@@ -146,7 +146,7 @@ window.loadUserInfo = function () {
 
     mainContainer.innerHTML = '<div class="loading">Загрузка...</div>';
 
-    fetch('/user-info', {
+    fetch('/teacher-info', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username })
@@ -158,12 +158,11 @@ window.loadUserInfo = function () {
         })
         .then(data => {
             mainContainer.innerHTML = `
-                <h2 class="user-info-title">Информация о пользователе</h2>
+                <h2 class="user-info-title">Информация о преподавателе</h2>
                 <div id="user-courses">
                     <div class="info-row"><div class="label">Фамилия: ${data.lastname}</div></div>
                     <div class="info-row"><div class="label">Имя: ${data.firstname}</div></div>
                     <div class="info-row"><div class="label">Отчество: ${data.patronymic}</div></div>
-                    <div class="info-row"><div class="label">Группа: ${data.groupp}</div></div>
                 </div>
             `;
             updateUrlAndState('/profile');
@@ -171,7 +170,7 @@ window.loadUserInfo = function () {
         .catch(err => {
             console.error('Ошибка:', err);
             if (err.message === 'not_found') {
-                mainContainer.innerHTML = '<div class="info-item">Студент не найден</div>';
+                mainContainer.innerHTML = '<div class="info-item">Преподаватель не найден</div>';
             } else {
                 if (errorDiv) errorDiv.textContent = 'Ошибка сети или сервера';
                 mainContainer.innerHTML = '<div class="error">Ошибка загрузки данных</div>';
@@ -184,7 +183,7 @@ function loadUserCourses() {
     const coursesContainer = document.getElementById('user-courses');
     if (!coursesContainer || !username) return;
 
-    fetch('/courses', {
+    fetch('/courses-teacher', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username })
@@ -212,6 +211,68 @@ function loadUserCourses() {
         })
         .catch(err => console.error('Ошибка загрузки курсов:', err));
 }
+
+window.loadCourseGroups = async function (courseId) {
+    const mainContainer = document.querySelector('.main-content');
+    const errorDiv = document.getElementById('error');
+
+    if (!mainContainer) return;
+
+    mainContainer.innerHTML = '<div class="loading">Загрузка списка студентов...</div>';
+
+    try {
+        const response = await fetch('/course-groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ course_id: Number(courseId) })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ошибка HTTP: ${response.status}`);
+        }
+
+        const groups = await response.json();
+
+        if (!groups.length) {
+            mainContainer.innerHTML = '<div class="info-item">На этот курс не назначено ни одной группы</div>';
+            return;
+        }
+
+        let html = '<h2>Группы и студенты курса</h2>';
+        for (const group of groups) {
+            html += `
+                <div class="group-card">
+                    <h3>Группа: ${escapeHtml(group.name)} (${escapeHtml(group.academic_year)})</h3>
+                    <p> Максимум студентов: ${group.max_students}</p>
+                    ${group.students.length ? `
+                        <table class="students-table">
+                            <thead>
+                                <tr><th>Логин</th><th>Фамилия</th><th>Имя</th><th>Отчество</th><th>Код студента</th></tr>
+                            </thead>
+                            <tbody>
+                                ${group.students.map(s => `
+                                    <tr>
+                                        <td>${escapeHtml(s.user_name)}</td>
+                                        <td>${escapeHtml(s.lastname)}</td>
+                                        <td>${escapeHtml(s.firstname)}</td>
+                                        <td>${escapeHtml(s.patronymic)}</td>
+                                        <td>${escapeHtml(s.student_code)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    ` : '<p>В группе нет студентов</p>'}
+                </div>
+            `;
+        }
+        mainContainer.innerHTML = html;
+        updateUrlAndState(`/course/${courseId}/students`);
+    } catch (err) {
+        console.error('Ошибка загрузки групп и студентов:', err);
+        if (errorDiv) errorDiv.textContent = 'Не удалось загрузить список студентов';
+        mainContainer.innerHTML = '<div class="error">Ошибка загрузки данных</div>';
+    }
+};
 
 window.loadTargetCourse = function (coursedata) {
     // Нормализуем строку параметров (может начинаться с '?' или '&')
@@ -254,6 +315,16 @@ window.loadTargetCourse = function (coursedata) {
             <div class="value">${course.end_date}</div>
         </div>
     `;
+
+    const studentsLinkDiv = document.createElement('div');
+    studentsLinkDiv.className = 'students-link-wrapper';
+    studentsLinkDiv.innerHTML = `<a href="#" id="showCourseStudentsLink" class="students-link">Показать группы и студентов курса</a>`;
+    contentItems.appendChild(studentsLinkDiv);
+
+    document.getElementById('showCourseStudentsLink').addEventListener('click', (e) => {
+        e.preventDefault();
+        window.loadCourseGroups(course.id);
+    });
 
     const username = localStorage.getItem('username');
     if (!username) {
@@ -334,10 +405,12 @@ window.loadTargetTask = async function (taskData) {
         <h2 id="courseTitle">Загрузка...</h2>
         <div id="courseInfo"></div>
         <div id="contentItems" class="content-items"></div>
+        <div id="resultsSection"></div>
         <div id="error" class="error"></div>
     `;
     const title = document.getElementById('courseTitle');
     const contentItems = document.getElementById('contentItems');
+    const resultsSection = document.getElementById('resultsSection');
     const errorDiv = document.getElementById('error');
 
     if (!task.id || !task.time_id) {
@@ -371,13 +444,13 @@ window.loadTargetTask = async function (taskData) {
         if (task.qdescription) {
             const descBlock = document.createElement('div');
             descBlock.className = 'field';
-            descBlock.innerHTML = `<div class="label">Общее</div><div class="value">${task.qdescription.replace(/\n/g, '<br>')}</div>`;
+            descBlock.innerHTML = `<div class="label">Общее</div><div class="value">${escapeHtml(task.qdescription).replace(/\n/g, '<br>')}</div>`;
             contentItems.appendChild(descBlock);
         }
         if (task.adescription) {
             const ansDescBlock = document.createElement('div');
             ansDescBlock.className = 'field';
-            ansDescBlock.innerHTML = `<div class="label">Описание ответа</div><div class="value">${task.adescription.replace(/\n/g, '<br>')}</div>`;
+            ansDescBlock.innerHTML = `<div class="label">Описание ответа</div><div class="value">${escapeHtml(task.adescription).replace(/\n/g, '<br>')}</div>`;
             contentItems.appendChild(ansDescBlock);
         }
 
@@ -386,8 +459,8 @@ window.loadTargetTask = async function (taskData) {
             timeBlock.className = 'time-info';
             timeBlock.innerHTML = `
                 <h3>Время выполнения</h3>
-                <div class="field"><div class="label">Начало</div><div class="value">${data.time.start_date || '—'}</div></div>
-                <div class="field"><div class="label">Окончание</div><div class="value">${data.time.end_date || '—'}</div></div>
+                <div class="field"><div class="label">Начало</div><div class="value">${escapeHtml(data.time.start_date || '—')}</div></div>
+                <div class="field"><div class="label">Окончание</div><div class="value">${escapeHtml(data.time.end_date || '—')}</div></div>
             `;
             contentItems.appendChild(timeBlock);
         }
@@ -402,256 +475,18 @@ window.loadTargetTask = async function (taskData) {
                 const link = document.createElement('a');
                 link.href = `/file/${file.id}`;
                 link.download = true;
-                link.textContent = `${file.file_name}.${file.extension}`;
+                link.textContent = `${escapeHtml(file.file_name)}.${escapeHtml(file.extension)}`;
                 li.appendChild(link);
                 list.appendChild(li);
             });
             contentItems.appendChild(filesBlock);
         }
-        let result_id = null;
-        if (data.result) {
-            result_id = data.result.id;
-            const resultBlock = document.createElement('div');
-            resultBlock.className = 'task-result';
-            resultBlock.innerHTML = `
-                <h3>Результат</h3>
-                <div class="field"><div class="label">Дата ответа</div><div class="value">${data.result.create_date || '—'}</div></div>
-                <div class="field"><div class="label">Статус</div><div class="value">${data.result.validation || '—'}</div></div>
-                <div class="field"><div class="label">Оценка</div><div class="value">${data.result.result !== undefined ? data.result.result : '—'}</div></div>
-            `;
-            if (data.result.answertext && data.result.answertext.length > 0) {
-                resultBlock.innerHTML += `<div class="field"><div class="label">Представленный ответ на задание: </div><div class="value">${data.result.answertext.replace(/\n/g, '<br>')}</div></div>`;
-            }
-            contentItems.appendChild(resultBlock);
 
-            if (data.answer_files && data.answer_files.length > 0) {
-                const answerFilesBlock = document.createElement('div');
-                answerFilesBlock.className = 'answer-files';
-                answerFilesBlock.innerHTML = '<h3>Файлы ответа</h3><ul></ul>';
-                const list = answerFilesBlock.querySelector('ul');
-                data.answer_files.forEach(file => {
-                    const li = document.createElement('li');
-                    const link = document.createElement('a');
-                    link.href = `/file/${file.id}`;
-                    link.download = true;
-                    link.textContent = `${file.file_name}.${file.extension}`;
-                    li.appendChild(link);
-                    list.appendChild(li);
-                });
-                contentItems.appendChild(answerFilesBlock);
-            }
-
-            if (result_id) {
-                const commentsBlock = document.createElement('div');
-                commentsBlock.className = 'task-comments';
-                commentsBlock.innerHTML = '<h3>Комментарии</h3><div id="commentsContainer"></div>';
-                contentItems.appendChild(commentsBlock);
-                const commentsContainer = commentsBlock.querySelector('#commentsContainer');
-                // загружаем комментарии асинхронно, не блокируя остальной рендер
-                loadComments(result_id, commentsContainer);
-            }
-
-            // Кнопка переприкрепления задания 
-            const noResultBlock = document.createElement('div');
-            noResultBlock.className = 'no-result';
-            noResultBlock.innerHTML = `
-                <p>Изменить ответ</p>
-                <button id="resubmitTaskBtn" class="btn">Изменить</button>
-                <div id="answerFormContainer" style="display:none;"></div>
-            `;
-            contentItems.appendChild(noResultBlock);
-            document.getElementById('resubmitTaskBtn')?.addEventListener('click', () => {
-                const container = document.getElementById('answerFormContainer');
-                if (!container) return;
-                if (container.style.display === 'block') {
-                    container.style.display = 'none';
-                    container.innerHTML = '';
-                    return;
-                }
-                container.style.display = 'block';
-                container.innerHTML = `
-                    <h3>Сдать задание</h3>
-                    <form id="answerForm">
-                        <div class="field">
-                            <label for="answerText">Ваш ответ (текст):</label>
-                            <textarea id="answerText" name="answertext" rows="5" style="width:100%;"></textarea>
-                        </div>
-                        <div class="field">
-                            <label for="answerFile">Прикрепить файл (необязательно):</label>
-                            <input type="file" id="answerFile" name="file">
-                        </div>
-                        <button type="submit" class="btn">Отправить</button>
-                        <button type="button" id="cancelAnswer" class="btn">Отмена</button>
-                    </form>
-                    <div id="answerStatus" class="status"></div>
-                `;
-
-                const form = document.getElementById('answerForm');
-                const cancelBtn = document.getElementById('cancelAnswer');
-                cancelBtn?.addEventListener('click', () => {
-                    container.style.display = 'none';
-                    container.innerHTML = '';
-                });
-
-                form?.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    const answerText = document.getElementById('answerText').value;
-                    const fileInput = document.getElementById('answerFile');
-                    const file = fileInput?.files?.[0];
-                    let fileId = null;
-
-                    if (file) {
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        formData.append('username', username);
-                        try {
-                            const uploadRes = await fetch('/upload', { method: 'POST', body: formData });
-                            if (!uploadRes.ok) throw new Error('Ошибка загрузки файла');
-                            const uploadData = await uploadRes.json();
-                            fileId = uploadData.file_id;
-                        } catch (err) {
-                            console.error(err);
-                            document.getElementById('answerStatus').textContent = 'Не удалось загрузить файл';
-                            return;
-                        }
-                    }
-
-                    const payload = {
-                        username: username,
-                        answer_id: result_id,
-                        task_id: Number(task.id),
-                        answertext: answerText,
-                        file_id: fileId !== null ? Number(fileId) : -1
-                    };
-
-                    try {
-                        const response = await fetch('/set-answer', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        if (!response.ok) {
-                            const errText = await response.text();
-                            throw new Error(errText);
-                        }
-                        const result = await response.json();
-                        if (result.success) {
-                            document.getElementById('answerStatus').textContent = 'Ответ успешно сохранён!';
-                            setTimeout(() => loadTargetTask(taskData), 1500);
-                        } else {
-                            document.getElementById('answerStatus').textContent = result.error || 'Ошибка сохранения';
-                        }
-                    } catch (err) {
-                        console.error(err);
-                        document.getElementById('answerStatus').textContent = 'Ошибка связи с сервером';
-                    }
-                });
-            });
-
-        } else {
-            const noResultBlock = document.createElement('div');
-            noResultBlock.className = 'no-result';
-            noResultBlock.innerHTML = `
-                <p>Задание еще не сдано.</p>
-                <button id="submitTaskBtn" class="btn">Сдать задание</button>
-                <div id="answerFormContainer" style="display:none;"></div>
-            `;
-            contentItems.appendChild(noResultBlock);
-
-            document.getElementById('submitTaskBtn')?.addEventListener('click', () => {
-                const container = document.getElementById('answerFormContainer');
-                if (!container) return;
-                if (container.style.display === 'block') {
-                    container.style.display = 'none';
-                    container.innerHTML = '';
-                    return;
-                }
-                container.style.display = 'block';
-                container.innerHTML = `
-                    <h3>Сдать задание</h3>
-                    <form id="answerForm">
-                        <div class="field">
-                            <label for="answerText">Ваш ответ (текст):</label>
-                            <textarea id="answerText" name="answertext" rows="5" style="width:100%;"></textarea>
-                        </div>
-                        <div class="field">
-                            <label for="answerFile">Прикрепить файл (необязательно):</label>
-                            <input type="file" id="answerFile" name="file">
-                        </div>
-                        <button type="submit" class="btn">Отправить</button>
-                        <button type="button" id="cancelAnswer" class="btn">Отмена</button>
-                    </form>
-                    <div id="answerStatus" class="status"></div>
-                `;
-
-                const form = document.getElementById('answerForm');
-                const cancelBtn = document.getElementById('cancelAnswer');
-                cancelBtn?.addEventListener('click', () => {
-                    container.style.display = 'none';
-                    container.innerHTML = '';
-                });
-
-                form?.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-                    const answerText = document.getElementById('answerText').value;
-                    const fileInput = document.getElementById('answerFile');
-                    const file = fileInput?.files?.[0];
-                    let fileId = null;
-
-                    if (file) {
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        formData.append('username', username);
-                        try {
-                            const uploadRes = await fetch('/upload', { method: 'POST', body: formData });
-                            if (!uploadRes.ok) throw new Error('Ошибка загрузки файла');
-                            const uploadData = await uploadRes.json();
-                            fileId = uploadData.file_id;
-                        } catch (err) {
-                            console.error(err);
-                            document.getElementById('answerStatus').textContent = 'Не удалось загрузить файл';
-                            return;
-                        }
-                    }
-
-                    const payload = {
-                        username: username,
-                        answer_id: 0,
-                        task_id: Number(task.id),
-                        answertext: answerText,
-                        file_id: fileId !== null ? Number(fileId) : -1
-                    };
-
-                    try {
-                        const response = await fetch('/set-answer', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        if (!response.ok) {
-                            const errText = await response.text();
-                            throw new Error(errText);
-                        }
-                        const result = await response.json();
-                        if (result.success) {
-                            document.getElementById('answerStatus').textContent = 'Ответ успешно сохранён!';
-                            setTimeout(() => loadTargetTask(taskData), 1500);
-                        } else {
-                            document.getElementById('answerStatus').textContent = result.error || 'Ошибка сохранения';
-                        }
-                    } catch (err) {
-                        console.error(err);
-                        document.getElementById('answerStatus').textContent = 'Ошибка связи с сервером';
-                    }
-                });
-            });
-        }
+        // Загружаем результаты задания (для преподавателя)
+        await loadTaskResults(task.id, resultsSection);
 
         // Обновляем URL
         let newUrl = `/task?task_id=${task.id}&time_id=${task.time_id}&name=${encodeURIComponent(task.name)}&qdescription=${encodeURIComponent(task.qdescription)}&adescription=${encodeURIComponent(task.adescription)}`;
-        if (result_id !== null) {
-            newUrl += `&answer_id=${result_id}`;
-        }
         updateUrlAndState(newUrl);
     } catch (err) {
         console.error('Ошибка загрузки задания:', err);
@@ -659,40 +494,260 @@ window.loadTargetTask = async function (taskData) {
     }
 };
 
-// Загрузка и отображение комментариев для taskresult_id
-async function loadComments(taskresultId, container) {
-    if (!taskresultId) return;
+// Функция для загрузки и отображения результатов задания
+async function loadTaskResults(taskId, container) {
+    if (!container) return;
+
     try {
-        const response = await fetch('/taskresult-comments', {
+        const response = await fetch('/task-results', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskresult_id: taskresultId })
+            body: JSON.stringify({ task_id: Number(taskId) })
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const comments = await response.json();
-        if (!comments || comments.length === 0) {
-            container.innerHTML = '<div class="comments-placeholder">Комментариев пока нет</div>';
+
+        if (!response.ok) {
+            throw new Error(`Ошибка HTTP: ${response.status}`);
+        }
+
+        const results = await response.json();
+
+        if (!results || results.length === 0) {
+            container.innerHTML = '<div class="info-item">Нет результатов для этого задания</div>';
             return;
         }
-        let html = '<div class="comments-list"><h4>Комментарии:</h4>';
-        for (const c of comments) {
-            const date = new Date(c.comment_date).toLocaleString();
-            // Отображаем ФИО преподавателя
-            const fullName = `${c.lastname} ${c.firstname} ${c.patronymic}`.trim();
-            html += `
-                <div class="comment-item">
-                    <strong>${escapeHtml(fullName || c.user_name)}</strong> <span class="comment-date">${date}</span>
-                    <div class="comment-text">${escapeHtml(c.comment_text).replace(/\n/g, '<br>')}</div>
-                </div>
+
+        // Создаем таблицу результатов (без столбца ID результата)
+        let tableHtml = `
+            <h3>Результаты выполнения задания</h3>
+            <div class="results-table-wrapper">
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Фамилия</th>
+                            <th>Имя</th>
+                            <th>Отчество</th>
+                            <th>Группа</th>
+                            <th>Текст ответа</th>
+                            <th>Результат проверки</th>
+                            <th>Файлы ответа</th>
+                            <th>Статус проверки</th>
+                            <th>Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        for (const result of results) {
+            // Формируем ячейку с файлами
+            let filesHtml = '';
+            if (result.answer_files && result.answer_files.length > 0) {
+                filesHtml = '<ul class="answer-files-list">';
+                result.answer_files.forEach(file => {
+                    filesHtml += `<li><a href="/file/${file.id}" download>${escapeHtml(file.file_name)}.${escapeHtml(file.extension)}</a></li>`;
+                });
+                filesHtml += '</ul>';
+            } else {
+                filesHtml = '—';
+            }
+
+            // Отображение статуса проверки (используем строковое поле validation_status)
+            const statusTextMap = {
+                'verification': 'Ожидает проверки',
+                'aproved': 'Принято',
+                'rejected': 'Отклонено',
+                'redevelopment': 'На доработку'
+            };
+            const statusText = statusTextMap[result.validation_status] || result.validation_status;
+            const statusClass = result.validation_status || 'verification';
+
+            tableHtml += `
+                <tr data-result-id="${result.result_id}" data-validation-status="${escapeHtml(result.validation_status)}">
+                    <td>${escapeHtml(result.lastname)}</td>
+                    <td>${escapeHtml(result.firstname)}</td>
+                    <td>${escapeHtml(result.patronymic)}</td>
+                    <td>${escapeHtml(result.groupp)}</td>
+                    <td class="answer-text-cell">${result.answertext ? escapeHtml(result.answertext).replace(/\n/g, '<br>') : '—'}</td>
+                    <td class="result-cell">${result.result ? escapeHtml(result.result).replace(/\n/g, '<br>') : '—'}</td>
+                    <td class="files-cell">${filesHtml}</td>
+                    <td class="status-cell ${statusClass}">${escapeHtml(statusText)}</td>
+                    <td class="action-cell">
+                        <button class="evaluate-btn" data-result-id="${result.result_id}" data-current-result="${escapeHtml(result.result || '')}" data-current-status="${escapeHtml(result.validation_status)}">Оценить</button>
+                    </td>
+                </tr>
             `;
         }
-        html += '</div>';
-        container.innerHTML = html;
+
+        tableHtml += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        container.innerHTML = tableHtml;
+
+        // Добавляем стили для таблицы (если ещё не добавлены)
+        addTableStyles();
+
+        // Навешиваем обработчики на кнопки "Оценить"
+        document.querySelectorAll('.evaluate-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const resultId = parseInt(btn.dataset.resultId);
+                const currentResult = btn.dataset.currentResult;
+                const currentStatus = btn.dataset.currentStatus;
+                await showEvaluationDialog(resultId, currentResult, currentStatus, taskId, container);
+            });
+        });
+
     } catch (err) {
-        console.error('Ошибка загрузки комментариев:', err);
-        container.innerHTML = '<div class="error">Не удалось загрузить комментарии</div>';
+        console.error('Ошибка загрузки результатов задания:', err);
+        container.innerHTML = '<div class="error">Не удалось загрузить результаты выполнения задания</div>';
     }
 }
+
+// Функция отображения диалога для оценки
+async function showEvaluationDialog(resultId, currentResult, currentStatus, taskId, container) {
+    const modal = document.createElement('div');
+    modal.className = 'evaluation-modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h4>Оценка работы</h4>
+            <label>Результат проверки:</label>
+            <textarea id="eval-result" rows="3" style="width:100%">${escapeHtml(currentResult)}</textarea>
+            <label>Статус проверки:</label>
+            <select id="eval-status" style="width:100%">
+                <option value="verification" ${currentStatus === 'verification' ? 'selected' : ''}>Ожидает проверки</option>
+                <option value="aproved" ${currentStatus === 'aproved' ? 'selected' : ''}>Принято</option>
+                <option value="rejected" ${currentStatus === 'rejected' ? 'selected' : ''}>Отклонено</option>
+                <option value="redevelopment" ${currentStatus === 'redevelopment' ? 'selected' : ''}>На доработку</option>
+            </select>
+            <label>Комментарий (необязательно):</label>
+            <textarea id="eval-comment" rows="3" style="width:100%" placeholder="Введите комментарий к работе..."></textarea>
+            <div style="margin-top: 15px; text-align: right;">
+                <button id="modal-cancel">Отмена</button>
+                <button id="modal-submit">Сохранить</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+
+    const cancelBtn = modal.querySelector('#modal-cancel');
+    const submitBtn = modal.querySelector('#modal-submit');
+
+    cancelBtn.addEventListener('click', () => modal.remove());
+
+    submitBtn.addEventListener('click', async () => {
+        const newResult = modal.querySelector('#eval-result').value.trim();
+        const newStatus = modal.querySelector('#eval-status').value;
+        const commentText = modal.querySelector('#eval-comment').value.trim();
+
+        if (!newResult) {
+            alert('Пожалуйста, заполните результат проверки');
+            return;
+        }
+
+        const username = localStorage.getItem('username');
+        if (!username) {
+            alert('Необходимо войти в систему');
+            modal.remove();
+            return;
+        }
+
+        const payload = {
+            validation: newStatus,
+            result: newResult,
+            task_id: Number(taskId),
+            task_result_id: Number(resultId),
+            username: username
+        };
+        if (commentText) {
+            payload.comment_text = commentText;
+        }
+
+        try {
+            const response = await fetch('/update-task-validation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Ошибка сервера');
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                alert('Оценка и комментарий сохранены');
+                modal.remove();
+                // Перезагружаем таблицу и комментарии
+                await loadTaskResults(taskId, container);
+            } else {
+                throw new Error(data.message || 'Неизвестная ошибка');
+            }
+        } catch (err) {
+            console.error('Ошибка при сохранении:', err);
+            alert('Не удалось сохранить: ' + err.message);
+        }
+    });
+}
+
+// Обновлённая функция addTableStyles (добавляем стили для модального окна и новых классов)
+function addTableStyles() {
+    if (document.getElementById('task-results-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'task-results-styles';
+    style.textContent = `
+        /* Стили таблицы (оставляем как было, но обновляем классы статусов) */
+        .results-table-wrapper { overflow-x: auto; margin-top: 20px; }
+        .results-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        .results-table th, .results-table td { border: 1px solid #ddd; padding: 10px; text-align: left; vertical-align: top; }
+        .results-table th { background-color: #4CAF50; color: white; font-weight: bold; position: sticky; top: 0; }
+        .results-table tr:nth-child(even) { background-color: #f9f9f9; }
+        .results-table tr:hover { background-color: #f5f5f5; }
+        .answer-text-cell, .result-cell { max-width: 300px; word-wrap: break-word; }
+        .files-cell ul { margin: 0; padding-left: 20px; }
+        .status-cell { font-weight: bold; text-align: center; }
+        .status-cell.verification { background-color: #fff3cd; color: #856404; }
+        .status-cell.aproved { background-color: #d4edda; color: #155724; }
+        .status-cell.rejected { background-color: #f8d7da; color: #721c24; }
+        .status-cell.redevelopment { background-color: #d1ecf1; color: #0c5460; }
+        .action-cell { text-align: center; }
+        .evaluate-btn { padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .evaluate-btn:hover { background-color: #0056b3; }
+
+        /* Стили модального окна */
+        .evaluation-modal {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .evaluation-modal .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 400px;
+            max-width: 90%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .evaluation-modal h4 { margin-top: 0; }
+        .evaluation-modal label { display: block; margin-top: 10px; font-weight: bold; }
+        .evaluation-modal button { margin-left: 10px; padding: 5px 15px; cursor: pointer; }
+    `;
+    document.head.appendChild(style);
+}
+
+
 
 window.loadTargetTest = async function (testData) {
     // Нормализуем строку параметров
@@ -717,11 +772,13 @@ window.loadTargetTest = async function (testData) {
         <div id="testInfo"></div>
         <div id="testActions"></div>
         <div id="error" class="error"></div>
+        <div id="testResultsContainer"></div>
     `;
     const titleEl = document.getElementById('testTitle');
     const testInfo = document.getElementById('testInfo');
     const actionsDiv = document.getElementById('testActions');
     const errorDiv = document.getElementById('error');
+    const resultsContainer = document.getElementById('testResultsContainer');
 
     if (!test.id) {
         errorDiv.textContent = 'Некорректные параметры теста';
@@ -747,56 +804,50 @@ window.loadTargetTest = async function (testData) {
     bestResultContainer.className = 'best-result-container';
     testInfo.appendChild(bestResultContainer);
 
-    // Загружаем лучший результат
+    // Загрузка таблицы результатов теста
     try {
-        const username = localStorage.getItem('username');
-        if (username && test.id) {
-            const response = await fetch('/test/best-result', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    username: username,
-                    test_id: parseInt(test.id, 10)
-                })
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                const completedDate = new Date(result.completed_at).toLocaleString();
-                bestResultContainer.innerHTML = `
-                <div class="field best-result">
-                    <div class="label">Лучший результат</div>
-                    <div class="value">
-                        ${result.total_points} / ${result.max_points} баллов (${result.percentage}%)<br>
-                        <small>Пройдено: ${completedDate}</small>
-                    </div>
-                </div>
-            `;
-            } else if (response.status === 404) {
-                bestResultContainer.innerHTML = `
-                <div class="field best-result">
-                    <div class="label">Лучший результат</div>
-                    <div class="value">Попыток ещё не было</div>
-                </div>
-            `;
-            } else {
-                // При других ошибках просто скрываем блок
-                bestResultContainer.style.display = 'none';
-            }
-        }
-    } catch (error) {
-        console.error('Ошибка при загрузке лучшего результата:', error);
-        bestResultContainer.style.display = 'none';
-    }
-
-    // Кнопка начала теста (пока без логики)
-    actionsDiv.innerHTML = `<button id="startTestBtn" class="btn">Начать тест</button>`;
-    const startBtn = document.getElementById('startTestBtn');
-    if (startBtn) {
-        startBtn.addEventListener('click', () => {
-            //console.log(test.id);
-            startTestAttempt(test.id, test.title);
+        const response = await fetch('/test-results', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ test_id: Number(test.id) })
         });
+        if (!response.ok) {
+            const errText = await response.text();
+            resultsContainer.innerHTML = `<div class="error">Ошибка загрузки результатов: ${errText}</div>`;
+            return;
+        }
+        const results = await response.json();
+        if (!results.length) {
+            resultsContainer.innerHTML = '<div class="info">Нет результатов по данному тесту.</div>';
+        } else {
+            let tableHtml = `
+            <div class="table-container">
+                <h3>Результаты студентов</h3>
+                <table class="results-table">
+                    <thead>
+                        <tr><th>Фамилия</th><th>Имя</th><th>Отчество</th><th>Группа</th><th>Набрано баллов</th><th>Максимум баллов</th><th>Процент</th></tr>
+                    </thead>
+                    <tbody>
+            `;
+            for (const row of results) {
+                tableHtml += `
+                    <tr>
+                        <td>${escapeHtml(row.lastname)}</td>
+                        <td>${escapeHtml(row.firstname)}</td>
+                        <td>${escapeHtml(row.patronymic)}</td>
+                        <td>${escapeHtml(row.groupp)}</td>
+                        <td>${row.total_points}</td>
+                        <td>${row.max_points}</td>
+                        <td>${row.percentage}%</td>
+                    </tr>
+                `;
+            }
+            tableHtml += `</tbody></table></div>`;
+            resultsContainer.innerHTML = tableHtml;
+        }
+    } catch (err) {
+        console.error(err);
+        resultsContainer.innerHTML = '<div class="error">Ошибка при получении результатов теста</div>';
     }
 
     // Обновляем URL
@@ -1102,7 +1153,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cabinetLink) {
         cabinetLink.addEventListener('click', (e) => {
             e.preventDefault();
-            loadUserInfo();
+            loadTeacherInfo();
         });
     }
 
