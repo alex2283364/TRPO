@@ -9,6 +9,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 
+
+
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С URL ===
 function updateUrlAndState(newUrl) {
     const current = window.location.pathname + window.location.search;
@@ -41,7 +43,7 @@ function restoreStateFromURL() {
         }
         if (paramStr) paramStr = paramStr.substring(1);
         loadTargetTask(paramStr);
-    } else if (path === '/test') {   // НОВЫЙ БЛОК
+    } else if (path === '/test') {
         const params = new URLSearchParams(search);
         let paramStr = '';
         for (let [key, value] of params.entries()) {
@@ -54,8 +56,6 @@ function restoreStateFromURL() {
         const testId = params.get('test_id');
         const attemptId = params.get('attempt_id');
         if (testId && attemptId) {
-            // Восстановить тест по attempt_id (потребуется дополнительный API)
-            // Пока просто показываем сообщение
             document.querySelector('.main-content').innerHTML = '<div class="error">Тест уже начат. Обновление страницы временно не поддерживается.</div>';
         }
     } else {
@@ -83,7 +83,6 @@ window.loadCourses = function () {
     })
         .then(res => res.json())
         .then((courses) => {
-            // Обновляем навигацию
             navContainer.innerHTML = '<li><a href="#" id="back-to-main">► В начало</a></li>';
             courses.forEach(course => {
                 const li = document.createElement('li');
@@ -91,13 +90,11 @@ window.loadCourses = function () {
                 a.textContent = course.name;
                 a.className = "targetcourse";
                 a.id = "targetcourse";
-                // Формируем корректный URL с параметрами
                 a.href = `?id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
                 li.appendChild(a);
                 navContainer.appendChild(li);
             });
 
-            // Обновляем основной список
             coursesContainer.innerHTML = '';
             courses.forEach(course => {
                 const li = document.createElement('li');
@@ -115,13 +112,11 @@ window.loadCourses = function () {
                     <p>Окончание: ${course.end_date}</p>`;
             });
 
-            // Перепривязываем обработчик для кнопки "В начало"
             const backBtn = document.getElementById('back-to-main');
             if (backBtn) {
                 backBtn.onclick = (e) => { e.preventDefault(); loadCourses(); };
             }
 
-            // Обновляем URL
             updateUrlAndState('/');
         })
         .catch(err => {
@@ -274,8 +269,209 @@ window.loadCourseGroups = async function (courseId) {
     }
 };
 
+// === ФУНКЦИИ ДЛЯ ДОБАВЛЕНИЯ ЗАДАНИЯ ===
+
+window.showAddTaskForm = function(courseId) {
+    const mainContainer = document.querySelector('.main-content');
+    if (!mainContainer) return;
+
+    mainContainer.dataset.currentCourseId = courseId;
+
+    const formHtml = `
+        <div class="add-task-form-container">
+            <h3>Добавить новое задание</h3>
+            <form id="addTaskForm" class="add-task-form" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="taskName">Название задания:</label>
+                    <input type="text" id="taskName" name="name" required class="form-control" placeholder="Введите название задания">
+                </div>
+                
+                <div class="form-group">
+                    <label for="taskDescription">Описание задания:</label>
+                    <textarea id="taskDescription" name="description" rows="5" required class="form-control" placeholder="Опишите что нужно сделать..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="taskAnswerDesc">Описание ответа (что нужно сдать):</label>
+                    <textarea id="taskAnswerDesc" name="answer_description" rows="3" class="form-control" placeholder="Например: SQL запрос, файл с кодом и т.д."></textarea>
+                </div>
+
+                <!-- === НОВАЯ СЕКЦИЯ ДЛЯ ФАЙЛОВ === -->
+                <div class="form-group">
+                    <label>Файлы задания (если есть):</label>
+                    <div class="file-upload-area" id="dropZone">
+                        <input type="file" id="taskFiles" name="files[]" multiple class="file-input-hidden">
+                        <div class="file-upload-content">
+                            <span class="icon">📁</span>
+                            <p>Перетащите файлы сюда или нажмите для выбора</p>
+                            <span class="file-hint">Можно загрузить несколько файлов</span>
+                        </div>
+                        <div id="fileList" class="file-list"></div>
+                    </div>
+                </div>
+                <!-- ================================= -->
+                
+                <div class="form-group">
+                    <label>Время выполнения:</label>
+                    <div class="datetime-row">
+                        <div class="datetime-field">
+                            <label for="startDate">Начало:</label>
+                            <input type="datetime-local" id="startDate" name="start_date" class="form-control">
+                        </div>
+                        <div class="datetime-field">
+                            <label for="endDate">Окончание:</label>
+                            <input type="datetime-local" id="endDate" name="end_date" class="form-control">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Создать задание</button>
+                    <button type="button" class="btn btn-secondary" onclick="cancelAddTask()">Отмена</button>
+                </div>
+            </form>
+        </div>
+    `;
+
+    mainContainer.innerHTML = formHtml;
+
+    // Логика Drag & Drop и выбора файлов
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('taskFiles');
+    const fileListContainer = document.getElementById('fileList');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        handleFiles(e.dataTransfer.files, fileInput, fileListContainer);
+    });
+
+    fileInput.addEventListener('change', () => {
+        handleFiles(fileInput.files, fileInput, fileListContainer);
+    });
+
+    // Функция отправки
+    const form = document.getElementById('addTaskForm');
+    if (form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await submitNewTask(courseId);
+        });
+    }
+
+    updateUrlAndState(`/course/add-task?id=${courseId}`);
+};
+
+// Вспомогательная функция для отображения выбранных файлов
+function handleFiles(files, fileInput, container) {
+    container.innerHTML = '';
+    // Обновляем файлы в инпуте (для отправки)
+    const dt = new DataTransfer();
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        dt.items.add(file);
+        
+        // Добавляем визуальный элемент списка
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-item';
+        fileItem.innerHTML = `
+            <span class="file-icon">📄</span>
+            <span class="file-name">${file.name}</span>
+            <span class="file-size">(${(file.size / 1024).toFixed(1)} KB)</span>
+            <button type="button" class="remove-file" data-index="${i}">×</button>
+        `;
+        container.appendChild(fileItem);
+    }
+    fileInput.files = dt.files;
+    
+    // Обработчики удаления файлов из списка
+    document.querySelectorAll('.remove-file').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation(); // Чтобы не срабатывал клик по зоне
+            const index = parseInt(btn.dataset.index);
+            const newDt = new DataTransfer();
+            for (let i = 0; i < fileInput.files.length; i++) {
+                if (i !== index) newDt.items.add(fileInput.files[i]);
+            }
+            fileInput.files = newDt.files;
+            handleFiles(fileInput.files, fileInput, container); // Перерисовать
+        });
+    });
+}
+
+window.cancelAddTask = function() {
+    const mainContainer = document.querySelector('.main-content');
+    if (!mainContainer) return;
+    
+    const previousContent = mainContainer.dataset.previousContent;
+    const courseId = mainContainer.dataset.currentCourseId;
+    
+    if (previousContent && courseId) {
+        // Возвращаемся к просмотру курса
+        const courseParams = new URLSearchParams(window.location.search);
+        const courseData = `?id=${courseId}&name=${courseParams.get('name')}&description=${courseParams.get('description')}&start_date=${courseParams.get('start_date')}&end_date=${courseParams.get('end_date')}`;
+        loadTargetCourse(courseData);
+    } else {
+        loadCourses();
+    }
+};
+
+async function submitNewTask(courseId) {
+    const form = document.getElementById('addTaskForm');
+    if (!form) return;
+    
+    // Используем FormData для отправки файлов
+    const formData = new FormData(form);
+    formData.append('course_id', Number(courseId));
+    
+    const username = localStorage.getItem('username');
+    if (!username) {
+        alert('Необходимо войти в систему');
+        return;
+    }
+    formData.append('username', username);
+
+    try {
+        // Отправляем как multipart/form-data (не нужно указывать Content-Type в заголовках, браузер сам)
+        const response = await fetch('/create-task', {
+            method: 'POST',
+            body: formData 
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Ошибка сервера');
+        }
+
+        const result = await response.json();
+        
+        if (result.success || result.task_id) {
+            alert('Задание успешно создано!');
+            // Возвращаемся к просмотру курса
+            const courseParams = new URLSearchParams(window.location.search);
+            const courseData = `?id=${courseId}&name=${courseParams.get('name')}&description=${courseParams.get('description')}&start_date=${courseParams.get('start_date')}&end_date=${courseParams.get('end_date')}`;
+            loadTargetCourse(courseData);
+        } else {
+            throw new Error(result.message || 'Неизвестная ошибка');
+        }
+    } catch (err) {
+        console.error('Ошибка при создании задания:', err);
+        alert('Не удалось создать задание: ' + err.message);
+    }
+}
+
 window.loadTargetCourse = function (coursedata) {
-    // Нормализуем строку параметров (может начинаться с '?' или '&')
     let paramsStr = coursedata;
     if (paramsStr.startsWith('?')) {
         paramsStr = '&' + paramsStr.substring(1);
@@ -333,7 +529,6 @@ window.loadTargetCourse = function (coursedata) {
         return;
     }
 
-    // Загружаем содержимое курса
     fetch(`/course-content/${course.id}?username=${username}`)
         .then((response) => __awaiter(void 0, void 0, void 0, function* () {
             if (response.status === 403) {
@@ -364,7 +559,6 @@ window.loadTargetCourse = function (coursedata) {
                 } else if (item.type === 'task' && item.task) {
                     div.innerHTML = `<a href="?task_id=${item.task.id}&time_id=${item.task.time_id}&name=${encodeURIComponent(item.task.name)}&qdescription=${encodeURIComponent(item.task.qdescription)}&adescription=${encodeURIComponent(item.task.adescription)}" class="task">${item.task.name}</a>`;
                 } else if (item.type === 'test' && item.test) {
-                    // обработка теста
                     const test = item.test;
                     div.innerHTML = `<a href="?test_id=${test.id}&title=${encodeURIComponent(test.title)}&description=${encodeURIComponent(test.description || '')}&time_limit_seconds=${test.time_limit_seconds || ''}&max_attempts=${test.max_attempts}" class="test">${test.title}</a>`;
                 } else {
@@ -373,7 +567,21 @@ window.loadTargetCourse = function (coursedata) {
                 descBlock.appendChild(div);
             }
 
-            // Обновляем URL после полной загрузки
+            // === ДОБАВЛЯЕМ КНОПКУ "ДОБАВИТЬ ЗАДАНИЕ" ===
+            const addTaskButtonDiv = document.createElement('div');
+            addTaskButtonDiv.className = 'add-task-button-wrapper';
+            addTaskButtonDiv.innerHTML = `
+                <button id="addTaskBtn" class="btn btn-add-task">
+                    <span class="icon">+</span> Добавить задание
+                </button>
+            `;
+            descBlock.appendChild(addTaskButtonDiv);
+
+            // Добавляем обработчик для кнопки
+            document.getElementById('addTaskBtn').addEventListener('click', () => {
+                showAddTaskForm(course.id);
+            });
+
             const newUrl = `/course?id=${course.id}&name=${encodeURIComponent(course.name)}&description=${encodeURIComponent(course.description)}&start_date=${course.start_date}&end_date=${course.end_date}`;
             updateUrlAndState(newUrl);
         })
@@ -384,7 +592,6 @@ window.loadTargetCourse = function (coursedata) {
 };
 
 window.loadTargetTask = async function (taskData) {
-    // Нормализуем строку параметров
     let paramsStr = taskData;
     if (paramsStr.startsWith('?')) {
         paramsStr = '&' + paramsStr.substring(1);
@@ -482,10 +689,8 @@ window.loadTargetTask = async function (taskData) {
             contentItems.appendChild(filesBlock);
         }
 
-        // Загружаем результаты задания (для преподавателя)
         await loadTaskResults(task.id, resultsSection);
 
-        // Обновляем URL
         let newUrl = `/task?task_id=${task.id}&time_id=${task.time_id}&name=${encodeURIComponent(task.name)}&qdescription=${encodeURIComponent(task.qdescription)}&adescription=${encodeURIComponent(task.adescription)}`;
         updateUrlAndState(newUrl);
     } catch (err) {
@@ -494,7 +699,6 @@ window.loadTargetTask = async function (taskData) {
     }
 };
 
-// Функция для загрузки и отображения результатов задания
 async function loadTaskResults(taskId, container) {
     if (!container) return;
 
@@ -516,7 +720,6 @@ async function loadTaskResults(taskId, container) {
             return;
         }
 
-        // Создаем таблицу результатов (без столбца ID результата)
         let tableHtml = `
             <h3>Результаты выполнения задания</h3>
             <div class="results-table-wrapper">
@@ -538,7 +741,6 @@ async function loadTaskResults(taskId, container) {
         `;
 
         for (const result of results) {
-            // Формируем ячейку с файлами
             let filesHtml = '';
             if (result.answer_files && result.answer_files.length > 0) {
                 filesHtml = '<ul class="answer-files-list">';
@@ -550,7 +752,6 @@ async function loadTaskResults(taskId, container) {
                 filesHtml = '—';
             }
 
-            // Отображение статуса проверки (используем строковое поле validation_status)
             const statusTextMap = {
                 'verification': 'Ожидает проверки',
                 'aproved': 'Принято',
@@ -585,10 +786,8 @@ async function loadTaskResults(taskId, container) {
 
         container.innerHTML = tableHtml;
 
-        // Добавляем стили для таблицы (если ещё не добавлены)
         addTableStyles();
 
-        // Навешиваем обработчики на кнопки "Оценить"
         document.querySelectorAll('.evaluate-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.preventDefault();
@@ -605,7 +804,6 @@ async function loadTaskResults(taskId, container) {
     }
 }
 
-// Функция отображения диалога для оценки
 async function showEvaluationDialog(resultId, currentResult, currentStatus, taskId, container) {
     const modal = document.createElement('div');
     modal.className = 'evaluation-modal';
@@ -684,7 +882,6 @@ async function showEvaluationDialog(resultId, currentResult, currentStatus, task
             if (data.success) {
                 alert('Оценка и комментарий сохранены');
                 modal.remove();
-                // Перезагружаем таблицу и комментарии
                 await loadTaskResults(taskId, container);
             } else {
                 throw new Error(data.message || 'Неизвестная ошибка');
@@ -696,14 +893,12 @@ async function showEvaluationDialog(resultId, currentResult, currentStatus, task
     });
 }
 
-// Обновлённая функция addTableStyles (добавляем стили для модального окна и новых классов)
 function addTableStyles() {
     if (document.getElementById('task-results-styles')) return;
 
     const style = document.createElement('style');
     style.id = 'task-results-styles';
     style.textContent = `
-        /* Стили таблицы (оставляем как было, но обновляем классы статусов) */
         .results-table-wrapper { overflow-x: auto; margin-top: 20px; }
         .results-table { width: 100%; border-collapse: collapse; font-size: 14px; }
         .results-table th, .results-table td { border: 1px solid #ddd; padding: 10px; text-align: left; vertical-align: top; }
@@ -721,7 +916,6 @@ function addTableStyles() {
         .evaluate-btn { padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
         .evaluate-btn:hover { background-color: #0056b3; }
 
-        /* Стили модального окна */
         .evaluation-modal {
             position: fixed;
             top: 0; left: 0;
@@ -747,10 +941,7 @@ function addTableStyles() {
     document.head.appendChild(style);
 }
 
-
-
 window.loadTargetTest = async function (testData) {
-    // Нормализуем строку параметров
     let paramsStr = testData;
     if (paramsStr.startsWith('?')) {
         paramsStr = '&' + paramsStr.substring(1);
@@ -787,7 +978,6 @@ window.loadTargetTest = async function (testData) {
 
     titleEl.textContent = test.title;
 
-    // Формируем информацию о тесте
     let infoHtml = `<div class="field"><div class="label">Описание</div><div class="value">${test.description ? test.description.replace(/\n/g, '<br>') : '—'}</div></div>`;
     if (test.time_limit_seconds) {
         const minutes = Math.floor(test.time_limit_seconds / 60);
@@ -804,7 +994,6 @@ window.loadTargetTest = async function (testData) {
     bestResultContainer.className = 'best-result-container';
     testInfo.appendChild(bestResultContainer);
 
-    // Загрузка таблицы результатов теста
     try {
         const response = await fetch('/test-results', {
             method: 'POST',
@@ -850,7 +1039,6 @@ window.loadTargetTest = async function (testData) {
         resultsContainer.innerHTML = '<div class="error">Ошибка при получении результатов теста</div>';
     }
 
-    // Обновляем URL
     const newUrl = `/test?test_id=${test.id}&title=${encodeURIComponent(test.title)}&description=${encodeURIComponent(test.description)}&time_limit_seconds=${test.time_limit_seconds}&max_attempts=${test.max_attempts}`;
     updateUrlAndState(newUrl);
 };
@@ -870,11 +1058,9 @@ async function startTestAttempt(testId, testTitle) {
             throw new Error(errorText);
         }
         const data = await response.json();
-        // Ожидаемый ответ: { attempt_id, questions, end_time }
         const attemptId = data.attempt_id;
         const questions = data.questions;
         const endTimeStr = data.end_time;
-        //console.log(testId);
         renderTestPage(testTitle, testId, questions, attemptId, endTimeStr);
     } catch (err) {
         console.error('Ошибка начала теста:', err);
@@ -909,13 +1095,11 @@ function renderTestPage(title, test_id, questions, attemptId, endTimeStr) {
 
         qDiv.innerHTML = `<p><strong>${idx + 1}. ${escapeHtml(q.question_text)}</strong> (${q.points} баллов)</p>`;
 
-        // Контейнер для вариантов ответов
         const optionsContainer = document.createElement('div');
         optionsContainer.className = 'question-options';
         optionsContainer.style.marginLeft = '20px';
 
         if (q.question_type === 'single_choice') {
-            // Радиокнопки
             if (q.options && q.options.length > 0) {
                 q.options.forEach(opt => {
                     const label = document.createElement('label');
@@ -934,7 +1118,6 @@ function renderTestPage(title, test_id, questions, attemptId, endTimeStr) {
             }
         }
         else if (q.question_type === 'multiple_choice') {
-            // Чекбоксы
             if (q.options && q.options.length > 0) {
                 q.options.forEach(opt => {
                     const label = document.createElement('label');
@@ -967,7 +1150,6 @@ function renderTestPage(title, test_id, questions, attemptId, endTimeStr) {
         questionsContainer.appendChild(qDiv);
     });
 
-    // Таймер
     if (endTimeStr) {
         const endTime = new Date(endTimeStr).getTime();
         startTimer(endTime);
@@ -976,15 +1158,13 @@ function renderTestPage(title, test_id, questions, attemptId, endTimeStr) {
         if (timerDiv) timerDiv.textContent = 'Время не ограничено';
     }
 
-    // Кнопка завершения теста (сбор ответов)
     const submitBtn = document.getElementById('submitTestBtn');
     if (submitBtn) {
         submitBtn.addEventListener('click', () => {
             finishTest(test_id, attemptId, questions);
         });
     }
-    //console.log(test_id);
-    // Обновляем URL (опционально)
+    
     const newUrl = `/test-run?test_id=${test_id}&attempt_id=${attemptId}`;
     updateUrlAndState(newUrl);
 }
@@ -1033,7 +1213,6 @@ async function finishTest(testId, attemptId, questions) {
         const result = await response.json();
         alert(`Тест завершён! Результат: ${result.score}/${result.max_score}`);
 
-        // Возврат на страницу курса или к списку тестов
         if (confirm('Вернуться к курсу?')) {
             window.history.back();
         } else {
@@ -1055,7 +1234,6 @@ function startTimer(endTimestamp) {
         if (remaining <= 0) {
             clearInterval(interval);
             timerElement.textContent = 'Время вышло!';
-            // Автоматически завершить тест
             if (confirm('Время вышло. Завершить тест?')) {
                 document.getElementById('submitTestBtn')?.click();
             }
@@ -1069,15 +1247,17 @@ function startTimer(endTimestamp) {
 
 function escapeHtml(str) {
     if (!str) return '';
-    return str.replace(/[&<>]/g, function (m) {
+    return str.replace(/[&<>"']/g, function (m) {
         if (m === '&') return '&amp;';
         if (m === '<') return '&lt;';
         if (m === '>') return '&gt;';
+        if (m === '"') return '&quot;';
+        if (m === "'") return '&#039;';
         return m;
     });
 }
 
-// === КАЛЕНДАРЬ (не зависит от маршрутов) ===
+// === КАЛЕНДАРЬ ===
 window.calendarState = { currentDate: new Date() };
 
 window.updateCalendar = function (targetDate = null) {
@@ -1127,10 +1307,8 @@ window.updateCalendar = function (targetDate = null) {
 
 // === ИНИЦИАЛИЗАЦИЯ ===
 document.addEventListener('DOMContentLoaded', () => {
-    // Восстанавливаем состояние по текущему URL
     restoreStateFromURL();
 
-    // Календарь
     window.updateCalendar();
     document.querySelectorAll('.calendar-nav').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -1143,12 +1321,32 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Приветствие
     const username = localStorage.getItem('username');
     const helloUser = document.querySelector('.helloUser');
-    if (username && helloUser) helloUser.textContent = `Здравствуйте, ${username}!`;
+    
+    if (username && helloUser) {
+        helloUser.textContent = `Здравствуйте, ${username}!`;
+    
+        fetch('/user-info', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
+        })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+            if (data) {
+                const fio = [data.lastname, data.firstname, data.patronymic]
+                            .filter(part => part && part.trim() !== '')
+                            .join(' ');
+                
+                if (fio) {
+                    helloUser.textContent = `Здравствуйте, ${fio}!`;
+                }
+            }
+        })
+        .catch(err => console.warn('Не удалось загрузить ФИО для приветствия:', err));
+    }
 
-    // Обработчик кнопки "Личный кабинет"
     const cabinetLink = document.querySelector('.cabinet-link');
     if (cabinetLink) {
         cabinetLink.addEventListener('click', (e) => {
@@ -1157,7 +1355,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Обработчик кликов по курсам
     document.addEventListener('click', (e) => {
         if (e.target.classList.contains('targetcourse')) {
             e.preventDefault();
@@ -1166,7 +1363,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Обработчик кликов по заданиям
     document.addEventListener('click', (e) => {
         if (e.target.classList.contains('task')) {
             e.preventDefault();
@@ -1180,7 +1376,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Обработчик навигации назад/вперёд
     window.addEventListener('popstate', () => {
         restoreStateFromURL();
     });
