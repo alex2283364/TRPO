@@ -60,12 +60,12 @@ server/
 
 | Компонент | Технология / Версия |
 |-----------|-------------------|
-| **Языки** | TypeScript ~87%, Rust ~1%, JavaScript ~10% |
-| **Web-фреймворк** | Actix Web 4.x (Rust) |
-| **База данных** | PostgreSQL 15+ с PL/pgSQL функциями |
-| **ORM / Query** | SQLx 0.7 с async-поддержкой |
-| **Сериализация** | Serde 1.x + serde_json |
-| **Асинхронность** | Tokio 1.x runtime |
+| **Языки** | TypeScript, Rust, JavaScript |
+| **Web-фреймворк** | Actix Web (Rust) |
+| **База данных** | PostgreSQL с PL/pgSQL функциями |
+| **ORM / Query** | SQLx с async-поддержкой |
+| **Сериализация** | Serde + serde_json |
+| **Асинхронность** | Tokio runtime |
 | **Работа с файлами** | actix-files, actix-multipart |
 | **Утилиты** | chrono, uuid, dotenvy, env_logger |
 
@@ -84,8 +84,6 @@ cd TRPO/server
 ```env
 DATABASE_URL_PUBLIC=postgres://publicUser:1@localhost/TRPO
 DATABASE_URL_STUDENT=postgres://studentUser:1@localhost/TRPO
-# При необходимости добавьте:
-# DATABASE_URL_ADMIN=postgres://admin:password@localhost/TRPO
 ```
 
 ### 3. Подготовка базы данных
@@ -121,10 +119,10 @@ rustup install stable
 ### 5. Сборка и запуск
 ```bash
 # Сборка проекта
-cargo build --release
+cargo build
 
 # Запуск сервера
-cargo run --release
+cargo run 
 # или напрямую исполняемый файл:
 ./target/release/actix_users_db
 ```
