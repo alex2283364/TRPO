@@ -63,6 +63,7 @@ async fn main() -> std::io::Result<()> {
             .route("/task-results", web::post().to(handlers::teacher::get_task_results))
             .route("/update-task-validation", web::post().to(handlers::teacher::update_task_validation))
             .route("/test-results", web::post().to(handlers::teacher::get_test_results))
+            .route("/student-progress", web::post().to(handlers::teacher::get_student_progress))
             .service(fs::Files::new("/", "./static").index_file("index.html"))
     })
     .bind(("127.0.0.1", 8080))?

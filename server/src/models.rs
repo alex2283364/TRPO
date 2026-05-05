@@ -1,5 +1,6 @@
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -300,12 +301,12 @@ pub struct TaskResultIdRequest {
     pub taskresult_id: i32,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct CommentInfo {
-    pub user_name: String,
-    pub comment_text: String,
-    pub comment_date: NaiveDateTime,
-}
+    #[derive(Debug, Serialize, sqlx::FromRow)]
+    pub struct CommentInfo {
+        pub user_name: String,
+        pub comment_text: String,
+        pub comment_date: DateTime<Utc>,
+    }
 
 #[derive(Debug, Serialize)]
 pub struct ExtendedComment {
@@ -314,7 +315,7 @@ pub struct ExtendedComment {
     pub firstname: String,
     pub patronymic: String,
     pub comment_text: String,
-    pub comment_date: NaiveDateTime,
+    pub comment_date: DateTime<Utc>,
 }
 
 // Структура для запроса test_id
@@ -333,4 +334,44 @@ pub struct TestStudentResult {
     pub total_points: i32,
     pub max_points: i32,
     pub percentage: f32,
+}
+
+// Запрос для получения прогресса студента
+#[derive(Debug, Deserialize)]
+pub struct StudentProgressRequest {
+    pub course_id: i32,
+    pub username: String,
+}
+
+// Информация о задании с результатами выполнения
+#[derive(Debug, Serialize)]
+pub struct TaskProgress {
+    pub id: i32,
+    pub p_name: String,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub result_id: Option<i32>,
+    pub create_date: Option<NaiveDateTime>,
+    pub answertext: Option<String>,
+    pub result: Option<String>,
+    pub file: Vec<FileInfo>,
+    pub validation: Option<i32>,
+    pub validation_status: Option<String>,
+}
+
+// Информация о тесте с результатами
+#[derive(Debug, Serialize)]
+pub struct TestProgress {
+    pub id: i32,
+    pub title: String,
+    pub total_points: Option<i32>,
+    pub max_points: Option<i32>,
+    pub percentage: Option<f32>,
+}
+
+// Ответ – прогресс студента по курсу
+#[derive(Debug, Serialize)]
+pub struct StudentProgressResponse {
+    pub tasks: Vec<TaskProgress>,
+    pub tests: Vec<TestProgress>,
 }

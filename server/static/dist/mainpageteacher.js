@@ -238,11 +238,11 @@ window.loadCourseGroups = async function (courseId) {
             html += `
                 <div class="group-card">
                     <h3>Группа: ${escapeHtml(group.name)} (${escapeHtml(group.academic_year)})</h3>
-                    <p> Максимум студентов: ${group.max_students}</p>
+                    <p>Максимум студентов: ${group.max_students}</p>
                     ${group.students.length ? `
                         <table class="students-table">
                             <thead>
-                                <tr><th>Логин</th><th>Фамилия</th><th>Имя</th><th>Отчество</th><th>Код студента</th></tr>
+                                <tr><th>Логин</th><th>Фамилия</th><th>Имя</th><th>Отчество</th><th>Код студента</th><th>Успеваемость</th></tr>
                             </thead>
                             <tbody>
                                 ${group.students.map(s => `
@@ -252,6 +252,7 @@ window.loadCourseGroups = async function (courseId) {
                                         <td>${escapeHtml(s.firstname)}</td>
                                         <td>${escapeHtml(s.patronymic)}</td>
                                         <td>${escapeHtml(s.student_code)}</td>
+                                        <td><a href="javascript:void(0)" class="progress-link" data-course="${courseId}" data-username="${escapeHtml(s.user_name)}">Показать прогресс</a></td>
                                     </tr>
                                 `).join('')}
                             </tbody>
@@ -261,6 +262,17 @@ window.loadCourseGroups = async function (courseId) {
             `;
         }
         mainContainer.innerHTML = html;
+
+        // Навешиваем обработчики на ссылки прогресса
+        document.querySelectorAll('.progress-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const courseId = link.getAttribute('data-course');
+                const username = link.getAttribute('data-username');
+                showStudentProgress(courseId, username);
+            });
+        });
+
         updateUrlAndState(`/course/${courseId}/students`);
     } catch (err) {
         console.error('Ошибка загрузки групп и студентов:', err);
@@ -268,6 +280,229 @@ window.loadCourseGroups = async function (courseId) {
         mainContainer.innerHTML = '<div class="error">Ошибка загрузки данных</div>';
     }
 };
+
+window.showStudentProgress = async function (courseId, username) {
+    const mainContainer = document.querySelector('.main-content');
+    if (!mainContainer) return;
+
+    mainContainer.innerHTML = '<div class="loading">Загрузка успеваемости студента...</div>';
+
+    try {
+        const response = await fetch('/student-progress', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ course_id: Number(courseId), username: username })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ошибка HTTP: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Формируем HTML для отображения прогресса
+        let html = `
+            <div class="progress-header">
+                <h2>Успеваемость студента: ${escapeHtml(username)}</h2>
+                <button id="backToStudentsBtn" class="back-button">← Назад к списку студентов</button>
+            </div>
+        `;
+
+        // Блок заданий
+        html += `<h3>Задания</h3>`;
+        if (data.tasks && data.tasks.length) {
+            html += `
+                <table class="progress-table">
+                    <thead>
+                        <tr>
+                            <th>Задание</th>
+                            <th>Срок сдачи</th>
+                            <th>Дата ответа</th>
+                            <th>Ответ</th>
+                            <th>Результат проверки</th>
+                            <th>Статус</th>
+                            <th>Файлы</th>
+                            <th>Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            for (const task of data.tasks) {
+                const deadline = task.end_date ? `${task.start_date || '—'} – ${task.end_date}` : '—';
+                const answerDate = task.create_date ? new Date(task.create_date).toLocaleString() : '—';
+                const answerText = task.answertext ? escapeHtml(task.answertext) : '—';
+                const result = task.result ? escapeHtml(task.result) : '—';
+                const validationStatus = task.validation_status ? escapeHtml(task.validation_status) : '—';
+
+                const filesHtml = task.file && task.file.length
+                    ? task.file.map(f => `<a href="/file/${f.id}" download>${escapeHtml(f.file_name)}.${escapeHtml(f.extension)}</a>`).join(', ')
+                    : '—';
+
+                let actionHtml = '';
+                if (task.result_id) {
+                    actionHtml = `<button class="evaluate-btn" 
+                                  data-result-id="${task.result_id}"
+                                  data-current-result="${escapeHtml(task.result || '')}"
+                                  data-current-status="${escapeHtml(task.validation_status || 'verification')}"
+                                  data-task-id="${task.id}">Оценить</button>`;
+                } else {
+                    actionHtml = '—';
+                }
+
+                html += `
+                    <tr data-result-id="${task.result_id || ''}" data-validation-status="${validationStatus}">
+                        <td>${escapeHtml(task.p_name)}</td>
+                        <td>${deadline}</td>
+                        <td>${answerDate}</td>
+                        <td class="answer-text-cell">${answerText.replace(/\n/g, '<br>')}</td>
+                        <td class="result-cell">${result.replace(/\n/g, '<br>')}</td>
+                        <td class="status-cell">${validationStatus}</td>
+                        <td class="files-cell">${filesHtml}</td>
+                        <td class="action-cell">${actionHtml}</td>
+                    </tr>
+                `;
+            }
+            html += `</tbody></table>`;
+        } else {
+            html += `<p>Нет заданий по этому курсу</p>`;
+        }
+
+        // Блок тестов
+        html += `<h3>Тесты</h3>`;
+        if (data.tests && data.tests.length) {
+            html += `
+                <table class="progress-table">
+                    <thead><tr><th>Тест</th><th>Набрано баллов</th><th>Максимум баллов</th><th>Процент</th></tr></thead>
+                    <tbody>
+            `;
+            for (const test of data.tests) {
+                const total = test.total_points !== null ? test.total_points : '—';
+                const max = test.max_points !== null ? test.max_points : '—';
+                const percent = test.percentage !== null ? test.percentage.toFixed(2) + '%' : '—';
+                html += `<tr><td>${escapeHtml(test.title)}</td><td>${total}</td><td>${max}</td><td>${percent}</td></tr>`;
+            }
+            html += `</tbody></table>`;
+        } else {
+            html += `<p>Нет тестов по этому курсу</p>`;
+        }
+
+        mainContainer.innerHTML = html;
+ 
+        addTableStyles();
+        // Навешиваем обработчики на кнопки "Оценить" ТОЛЬКО ПОСЛЕ вставки HTML
+        document.querySelectorAll('.evaluate-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const resultId = parseInt(btn.dataset.resultId);
+                const currentResult = btn.dataset.currentResult;
+                const currentStatus = btn.dataset.currentStatus;
+                const taskId = parseInt(btn.dataset.taskId);
+
+                // Показываем диалог, а после сохранения обновляем всю страницу прогресса
+                await showEvaluationDialogForProgress(
+                    resultId, currentResult, currentStatus, taskId,
+                    () => showStudentProgress(courseId, username)
+                );
+            });
+        });
+
+        // Кнопка возврата к списку студентов
+        document.getElementById('backToStudentsBtn')?.addEventListener('click', () => {
+            loadCourseGroups(courseId);
+        });
+
+        updateUrlAndState(`/course/${courseId}/student/${encodeURIComponent(username)}/progress`);
+    } catch (err) {
+        console.error('Ошибка загрузки прогресса:', err);
+        mainContainer.innerHTML = `<div class="error">Не удалось загрузить успеваемость студента: ${err.message}</div>`;
+    }
+};
+
+async function showEvaluationDialogForProgress(resultId, currentResult, currentStatus, taskId, onSuccess) {
+    const modal = document.createElement('div');
+    modal.className = 'evaluation-modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h4>Оценка работы</h4>
+            <label>Результат проверки:</label>
+            <textarea id="eval-result" rows="3" style="width:100%">${escapeHtml(currentResult)}</textarea>
+            <label>Статус проверки:</label>
+            <select id="eval-status" style="width:100%">
+                <option value="verification" ${currentStatus === 'verification' ? 'selected' : ''}>Ожидает проверки</option>
+                <option value="aproved" ${currentStatus === 'aproved' ? 'selected' : ''}>Принято</option>
+                <option value="rejected" ${currentStatus === 'rejected' ? 'selected' : ''}>Отклонено</option>
+                <option value="redevelopment" ${currentStatus === 'redevelopment' ? 'selected' : ''}>На доработку</option>
+            </select>
+            <label>Комментарий (необязательно):</label>
+            <textarea id="eval-comment" rows="3" style="width:100%" placeholder="Введите комментарий к работе..."></textarea>
+            <div style="margin-top: 15px; text-align: right;">
+                <button id="modal-cancel">Отмена</button>
+                <button id="modal-submit">Сохранить</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+
+    modal.querySelector('#modal-cancel').addEventListener('click', () => modal.remove());
+
+    modal.querySelector('#modal-submit').addEventListener('click', async () => {
+        const newResult = modal.querySelector('#eval-result').value.trim();
+        const newStatus = modal.querySelector('#eval-status').value;
+        const commentText = modal.querySelector('#eval-comment').value.trim();
+
+        if (!newResult) {
+            alert('Пожалуйста, заполните результат проверки');
+            return;
+        }
+
+        const username = localStorage.getItem('username');
+        if (!username) {
+            alert('Необходимо войти в систему');
+            modal.remove();
+            return;
+        }
+
+        const payload = {
+            validation: newStatus,
+            result: newResult,
+            task_id: Number(taskId),
+            task_result_id: Number(resultId),
+            username: username
+        };
+        if (commentText) {
+            payload.comment_text = commentText;
+        }
+
+        try {
+            const response = await fetch('/update-task-validation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || 'Ошибка сервера');
+            }
+
+            const data = await response.json();
+            if (data.success) {
+                alert('Оценка и комментарий сохранены');
+                modal.remove();
+                if (onSuccess) await onSuccess();
+            } else {
+                throw new Error(data.message || 'Неизвестная ошибка');
+            }
+        } catch (err) {
+            console.error('Ошибка при сохранении:', err);
+            alert('Не удалось сохранить: ' + err.message);
+        }
+    });
+}
 
 // === ФУНКЦИИ ДЛЯ ДОБАВЛЕНИЯ ЗАДАНИЯ ===
 

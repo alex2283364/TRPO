@@ -103,12 +103,14 @@ pub async fn set_answer(
     req: web::Json<SetAnswerRequest>,
 ) -> impl Responder {
     let pool = &state.student_pool;
+    let file_id = req.file_id;
+    //println!("{}",file_id);
     match sqlx::query_scalar::<_, bool>("SELECT base.set_answer($1, $2, $3, $4, $5)")
         .bind(&req.username)
         .bind(req.answer_id)
         .bind(req.task_id)
         .bind(&req.answertext)
-        .bind(req.file_id)
+        .bind(file_id)
         .fetch_one(pool)
         .await
     {

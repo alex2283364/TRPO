@@ -1,9 +1,12 @@
 use actix_web::{web, HttpResponse, Responder};
 use crate::models::{UserInfoRequest, TeacherInfo, Course, CourseIdRequest, StudentInfoCourse, GroupInfo,
                     TaskResultFullInfo, TaskResultRaw, TaskIdRequest, FileInfo, UpdateTaskValidationRequest,
-                TestIdRequest, TestStudentResult};
+                TestIdRequest, TestStudentResult, StudentProgressRequest, StudentProgressResponse, TaskProgress, 
+                TestProgress,};
 use crate::state::AppState;
 use serde_json::json;
+use chrono::NaiveDate;
+use chrono::NaiveDateTime;
 
 /// Получение информации о преподавателе (фамилия, имя, отчество) по имени пользователя.
 pub async fn get_teacher_info(
@@ -350,4 +353,165 @@ pub async fn get_test_results(
     }
 
     HttpResponse::Ok().json(final_results)
+}
+
+pub async fn get_student_progress(
+    state: web::Data<AppState>,
+    req: web::Json<StudentProgressRequest>,
+) -> impl Responder {
+    let pool = &state.public_pool;
+    let course_id = req.course_id;
+    let username = &req.username;
+
+    let mut tasks_progress = Vec::new();
+    let mut tests_progress = Vec::new();
+
+    // 1. Получаем список заданий курса
+    let tasks = match sqlx::query_as::<_, (i32, String, NaiveDate, NaiveDate)>(
+        "SELECT * FROM base.get_tasks_by_course($1)"
+    )
+    .bind(course_id)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            eprintln!("Ошибка получения заданий курса {}: {:?}", course_id, e);
+            return HttpResponse::InternalServerError().body("Ошибка получения заданий");
+        }
+    };
+
+    // 2. Для каждого задания пытаемся получить результат студента
+    for (task_id, p_name, start_date, end_date) in tasks {
+        // Получаем результаты задания для данного студента
+        let task_results = match sqlx::query_as::<_, (i32, NaiveDateTime, Option<String>, Option<String>, i32, String)>(
+            "SELECT * FROM base.get_task_results_by_username($1, $2)"
+        )
+        .bind(task_id)
+        .bind(username)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                eprintln!("Ошибка получения результатов задания {}: {:?}", task_id, e);
+                Vec::new()
+            }
+        };
+
+        if task_results.is_empty() {
+            // Нет результата – добавляем запись с пустыми полями
+            tasks_progress.push(TaskProgress {
+                id: task_id,
+                p_name,
+                start_date,
+                end_date,
+                result_id: None,
+                create_date: None,
+                answertext: None,
+                result: None,
+                file: Vec::new(),
+                validation: None,
+                validation_status: None,
+            });
+            continue;
+        }
+
+        // Берём последний результат по дате создания (предполагаем, что первая запись может быть не последней)
+        let mut sorted = task_results;
+        sorted.sort_by_key(|r| r.1); // по create_date
+        let (result_id, create_date, answertext, result, validation, validation_status) =
+            sorted.last().unwrap();
+
+        // Получаем файлы ответа для этого result_id
+        let answer_files = match sqlx::query_as::<_, FileInfo>(
+            "SELECT * FROM base.get_files_by_answer($1)"
+        )
+        .bind(result_id)
+        .fetch_all(pool)
+        .await
+        {
+            Ok(files) => files,
+            Err(e) => {
+                eprintln!("Ошибка получения файлов ответа для result_id {}: {:?}", result_id, e);
+                Vec::new()
+            }
+        };
+
+        tasks_progress.push(TaskProgress {
+            id: task_id,
+            p_name,
+            start_date,
+            end_date,
+            result_id: Some(*result_id),
+            create_date: Some(*create_date),
+            answertext: answertext.clone(),
+            result: result.clone(),
+            file: answer_files,
+            validation: Some(*validation),
+            validation_status: Some(validation_status.clone()),
+        });
+    }
+
+    // 3. Получаем список тестов курса
+    let tests = match sqlx::query_as::<_, (i32, String)>(
+        "SELECT * FROM base.get_tests_by_course($1)"
+    )
+    .bind(course_id)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            eprintln!("Ошибка получения тестов курса {}: {:?}", course_id, e);
+            return HttpResponse::InternalServerError().body("Ошибка получения тестов");
+        }
+    };
+
+    // 4. Для каждого теста получаем результат студента
+    for (test_id, title) in tests {
+        let test_result = sqlx::query_as::<_, (i32, i32, f32)>(
+            "SELECT * FROM base.get_test_results_by_test_id_and_username($1, $2)"
+        )
+        .bind(test_id)
+        .bind(username)
+        .fetch_optional(pool)
+        .await;
+
+        match test_result {
+            Ok(Some((total_points, max_points, percentage))) => {
+                tests_progress.push(TestProgress {
+                    id: test_id,
+                    title,
+                    total_points: Some(total_points),
+                    max_points: Some(max_points),
+                    percentage: Some(percentage),
+                });
+            }
+            Ok(None) => {
+                tests_progress.push(TestProgress {
+                    id: test_id,
+                    title,
+                    total_points: None,
+                    max_points: None,
+                    percentage: None,
+                });
+            }
+            Err(e) => {
+                eprintln!("Ошибка получения результатов теста {}: {:?}", test_id, e);
+                tests_progress.push(TestProgress {
+                    id: test_id,
+                    title,
+                    total_points: None,
+                    max_points: None,
+                    percentage: None,
+                });
+            }
+        }
+    }
+
+    HttpResponse::Ok().json(StudentProgressResponse {
+        tasks: tasks_progress,
+        tests: tests_progress,
+    })
 }
