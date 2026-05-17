@@ -1137,7 +1137,7 @@ function addTableStyles() {
         .results-table-wrapper { overflow-x: auto; margin-top: 20px; }
         .results-table { width: 100%; border-collapse: collapse; font-size: 14px; }
         .results-table th, .results-table td { border: 1px solid #ddd; padding: 10px; text-align: left; vertical-align: top; }
-        .results-table th { background-color: #4CAF50; color: white; font-weight: bold; position: sticky; top: 0; }
+        .results-table th { background-color: #f2f2f2; color: white; font-weight: bold; position: sticky; top: 0; }
         .results-table tr:nth-child(even) { background-color: #f9f9f9; }
         .results-table tr:hover { background-color: #f5f5f5; }
         .answer-text-cell, .result-cell { max-width: 300px; word-wrap: break-word; }
